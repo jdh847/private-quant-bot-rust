@@ -112,3 +112,8 @@ jobs:
           test -f outputs_rust_ci_synth/a_share.csv
           test -f outputs_rust_ci_synth/jp_equities.csv
           test -f outputs_rust_ci_synth/us_industries.csv
+
+      - name: Smoke Run Bundle
+        run: |
+          cargo run -- bundle --output-dir outputs_rust_ci
+          ls -1 outputs_rust_ci/run_bundle_*.tar.gz | head -n 1

@@ -1,6 +1,7 @@
 pub mod attribution;
 pub mod audit;
 pub mod benchmark;
+pub mod bundle;
 pub mod calendar;
 pub mod config;
 pub mod control_center;

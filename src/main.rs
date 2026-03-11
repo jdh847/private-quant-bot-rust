@@ -6,6 +6,7 @@ use private_quant_bot::{
     attribution::write_factor_attribution_report,
     audit::write_audit_snapshot,
     benchmark::{run_benchmark_suite, BenchmarkRequest},
+    bundle::{create_run_bundle, BundleRequest},
     config::{load_config, BotConfig},
     control_center::{run_control_center, ControlCenterRequest},
     daemon::{run_paper_daemon, PaperDaemonRequest},
@@ -272,6 +273,12 @@ enum Command {
         #[arg(long, default_value_t = false)]
         force: bool,
     },
+    Bundle {
+        #[arg(long, default_value = "outputs_rust")]
+        output_dir: String,
+        #[arg(long, default_value = "")]
+        bundle_path: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -488,6 +495,10 @@ fn main() -> Result<()> {
             industries_per_market,
             force,
         }),
+        Command::Bundle {
+            output_dir,
+            bundle_path,
+        } => bundle_command(&output_dir, &bundle_path),
     }
 }
 
@@ -530,6 +541,28 @@ fn gen_synth_data_command(args: GenSynthDataArgs) -> Result<()> {
     println!(
         "synthetic dataset generated: {} (US={} A={} JP={} seed={})",
         args.output_dir, args.us_symbols, args.a_symbols, args.jp_symbols, args.seed
+    );
+    Ok(())
+}
+
+fn bundle_command(output_dir: &str, bundle_path: &str) -> Result<()> {
+    let out = PathBuf::from(output_dir);
+    let bundle_path = if bundle_path.trim().is_empty() {
+        let ts = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+        out.join(format!("run_bundle_{ts}.tar.gz"))
+    } else {
+        PathBuf::from(bundle_path)
+    };
+
+    let report = create_run_bundle(&BundleRequest {
+        output_dir: out,
+        bundle_path,
+    })?;
+    println!("bundle written: {}", report.bundle_path.display());
+    println!(
+        "bundle files: included={} missing={}",
+        report.manifest.files.len(),
+        report.manifest.missing.len()
     );
     Ok(())
 }

@@ -175,6 +175,14 @@ Generates:
 cargo run -- dashboard --output-dir outputs_rust --lang zh
 ```
 
+## Run Bundle (Shareable Artifact)
+
+Create a single `.tar.gz` containing the key run artifacts plus SHA256 manifest:
+
+```bash
+cargo run -- bundle --output-dir outputs_rust
+```
+
 ## Strategy plugin catalog
 
 ```bash

@@ -75,6 +75,16 @@ cargo run -- gen-synth-data --output-dir data_synth --seed 42 --us-symbols 12 --
 
 Then update `config/bot.toml` `markets.*.data_file` paths to point at `data_synth/*.csv`.
 
+## 6) Create a Shareable Run Bundle
+
+```bash
+cargo run -- bundle --output-dir outputs_rust
+```
+
+Expected:
+
+- `outputs_rust/run_bundle_<timestamp>.tar.gz`
+
 ## Scripts
 
 Runnable helpers:
