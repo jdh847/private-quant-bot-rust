@@ -133,6 +133,38 @@ pub fn msg_open_dashboard_hint(lang: Language) -> &'static str {
     }
 }
 
+pub fn msg_server_started(lang: Language) -> &'static str {
+    match lang {
+        Language::Zh => "本地服务已启动",
+        Language::Ja => "ローカルサーバー起動",
+        Language::En => "server started",
+    }
+}
+
+pub fn msg_server_root(lang: Language) -> &'static str {
+    match lang {
+        Language::Zh => "根目录",
+        Language::Ja => "ルート",
+        Language::En => "root",
+    }
+}
+
+pub fn msg_server_url(lang: Language) -> &'static str {
+    match lang {
+        Language::Zh => "地址",
+        Language::Ja => "URL",
+        Language::En => "url",
+    }
+}
+
+pub fn msg_server_ctrl_c(lang: Language) -> &'static str {
+    match lang {
+        Language::Zh => "按 Ctrl+C 停止",
+        Language::Ja => "Ctrl+C で停止",
+        Language::En => "Press Ctrl+C to stop",
+    }
+}
+
 pub fn msg_walk_forward_completed(lang: Language) -> &'static str {
     match lang {
         Language::Zh => "滚动优化完成",

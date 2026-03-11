@@ -30,6 +30,10 @@ cargo run -- demo --config config/bot.toml --lang zh
 # macOS：打开最近一次 Demo 的 dashboard
 open "$(cat outputs_rust/demo/LATEST_DASHBOARD.txt)"
 
+# 如果浏览器拦截 `file://` 下的 fetch，请用本地服务打开：
+cargo run -- serve --root outputs_rust/demo --bind 127.0.0.1:8787 --lang zh
+# 然后打开 http://127.0.0.1:8787/
+
 cargo run -- run --config config/bot.toml --output-dir outputs_rust --lang zh
 
 # 可选：强制切换策略插件

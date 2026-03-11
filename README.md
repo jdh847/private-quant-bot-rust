@@ -71,6 +71,10 @@ cargo run -- demo --config config/bot.toml --lang en
 # macOS: open the latest demo dashboard
 open "$(cat outputs_rust/demo/LATEST_DASHBOARD.txt)"
 
+# If your browser blocks `file://` fetch requests, serve via localhost:
+cargo run -- serve --root outputs_rust/demo --bind 127.0.0.1:8787 --lang en
+# then open http://127.0.0.1:8787/
+
 # standard run (writes to outputs_rust/)
 cargo run -- run --config config/bot.toml --output-dir outputs_rust --lang en
 

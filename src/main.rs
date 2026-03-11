@@ -13,8 +13,8 @@ use private_quant_bot::{
     engine::{summarize_result, BacktestStats, QuantBotEngine},
     i18n::{
         msg_benchmark_completed, msg_dashboard, msg_demo_completed, msg_open_dashboard_hint,
-        msg_replay_completed, msg_research_completed, msg_run_completed,
-        msg_walk_forward_completed, Language,
+        msg_replay_completed, msg_research_completed, msg_run_completed, msg_server_ctrl_c,
+        msg_server_root, msg_server_started, msg_server_url, msg_walk_forward_completed, Language,
     },
     leaderboard::{build_public_leaderboard, LeaderboardRequest},
     optimize::{run_walk_forward, WalkForwardRequest},
@@ -32,6 +32,7 @@ use private_quant_bot::{
         check_strategy_sdk, create_strategy_sdk, register_strategy_sdk, SdkInitRequest,
         SdkRegisterRequest,
     },
+    serve::{inspect_dashboard_server, run_dashboard_server, ServeRequest},
     strategy::{is_supported_strategy_plugin, runtime_strategy_plugin_catalog},
     ui::build_dashboard_with_language,
 };
@@ -61,6 +62,14 @@ enum Command {
         config: String,
         #[arg(long, default_value = "outputs_rust/demo")]
         output_root: String,
+    },
+    Serve {
+        #[arg(long, default_value = "outputs_rust")]
+        root: String,
+        #[arg(long, default_value = "127.0.0.1:8787")]
+        bind: String,
+        #[arg(long, default_value_t = true)]
+        prefer_latest: bool,
     },
     Optimize {
         #[arg(long, default_value = "config/bot.toml")]
@@ -248,6 +257,11 @@ fn main() -> Result<()> {
             language,
             cli.strategy_plugin.as_deref(),
         ),
+        Command::Serve {
+            root,
+            bind,
+            prefer_latest,
+        } => serve_command(&root, &bind, prefer_latest, language),
         Command::Optimize {
             config,
             output_dir,
@@ -401,6 +415,31 @@ fn main() -> Result<()> {
             force,
         } => scaffold_plugin_command(&id, &output_dir, force),
     }
+}
+
+fn serve_command(root: &str, bind: &str, prefer_latest: bool, language: Language) -> Result<()> {
+    let req = ServeRequest {
+        root_dir: PathBuf::from(root),
+        bind: bind.to_string(),
+        prefer_latest,
+    };
+    let report = inspect_dashboard_server(&req)?;
+    println!(
+        "{} | {}={} | {}={}",
+        msg_server_started(language),
+        msg_server_root(language),
+        report.root_dir.display(),
+        msg_server_url(language),
+        report.base_url
+    );
+    if let Some(rel) = &report.default_doc_rel {
+        println!("default: /{rel}");
+    } else {
+        println!("default: (none)");
+    }
+    println!("{}", msg_server_ctrl_c(language));
+    let _ = run_dashboard_server(&req)?;
+    Ok(())
 }
 
 fn demo_command(

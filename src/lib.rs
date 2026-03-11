@@ -24,5 +24,6 @@ pub mod risk;
 pub mod robustness;
 pub mod scaffold;
 pub mod sdk;
+pub mod serve;
 pub mod strategy;
 pub mod ui;

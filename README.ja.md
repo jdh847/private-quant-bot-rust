@@ -30,6 +30,10 @@ cargo run -- demo --config config/bot.toml --lang ja
 # macOS: 最新デモの dashboard を開く
 open "$(cat outputs_rust/demo/LATEST_DASHBOARD.txt)"
 
+# `file://` の fetch がブロックされる場合は localhost で提供:
+cargo run -- serve --root outputs_rust/demo --bind 127.0.0.1:8787 --lang ja
+# 次を開く: http://127.0.0.1:8787/
+
 cargo run -- run --config config/bot.toml --output-dir outputs_rust --lang ja
 
 # 任意: 実行時に戦略プラグインを上書き
