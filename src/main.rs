@@ -702,6 +702,7 @@ fn demo_command(
     let data = load_data_for_config(&cfg)?;
 
     let output_dir = make_demo_output_dir(output_root)?;
+    write_config_snapshot_redacted(Path::new(config_path), &output_dir)?;
     let output_dir_str = output_dir.to_string_lossy();
     let result = QuantBotEngine::from_config(cfg.clone(), data.clone())?.run();
     write_outputs(output_dir_str.as_ref(), &result)?;
@@ -948,6 +949,10 @@ fn run_command(
     apply_strategy_plugin_override(&mut cfg, strategy_plugin_override)?;
     let data = load_data_for_config(&cfg)?;
 
+    std::fs::create_dir_all(output_dir)
+        .with_context(|| format!("create output_dir failed: {output_dir}"))?;
+    write_config_snapshot_redacted(Path::new(config_path), Path::new(output_dir))?;
+
     let result = QuantBotEngine::from_config(cfg.clone(), data.clone())?.run();
     write_outputs(output_dir, &result)?;
     let attribution = write_factor_attribution_report(&cfg, &data, output_dir)?;
@@ -1005,6 +1010,75 @@ fn run_command(
     );
 
     Ok(())
+}
+
+fn write_config_snapshot_redacted(config_path: &Path, output_dir: &Path) -> Result<PathBuf> {
+    let raw = std::fs::read_to_string(config_path)
+        .with_context(|| format!("read config for snapshot failed: {}", config_path.display()))?;
+    let redacted = redact_toml_secrets(&raw);
+    let out = output_dir.join("config_used_redacted.toml");
+    std::fs::write(&out, redacted)
+        .with_context(|| format!("write config snapshot failed: {}", out.display()))?;
+    Ok(out)
+}
+
+fn redact_toml_secrets(input: &str) -> String {
+    // Best-effort redaction. Users should still avoid putting secrets in configs.
+    // We redact common keys while preserving formatting and comments as much as possible.
+    let sensitive_keys = [
+        "account_id",
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "api_key",
+        "apikey",
+        "client_secret",
+        "access_key",
+        "private_key",
+    ];
+
+    let mut out = String::with_capacity(input.len());
+    for line in input.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        let (code, comment) = match line.split_once('#') {
+            Some((a, b)) => (a, Some(b)),
+            None => (line, None),
+        };
+        let Some((left, right)) = code.split_once('=') else {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        };
+
+        let key = left.trim().to_ascii_lowercase();
+        let val = right.trim();
+        let is_sensitive = sensitive_keys.iter().any(|k| key.contains(k));
+        if is_sensitive && !val.is_empty() && val != "\"\"" && val != "''" {
+            // Preserve leading indentation and original key formatting.
+            let prefix_len = line.len().saturating_sub(trimmed.len());
+            let indent = &line[..prefix_len];
+            out.push_str(indent);
+            out.push_str(left.trim_end());
+            out.push_str(" = \"REDACTED\"");
+            if let Some(c) = comment {
+                out.push_str(" #");
+                out.push_str(c);
+            }
+            out.push('\n');
+            continue;
+        }
+
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 #[allow(clippy::too_many_arguments)]

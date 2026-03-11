@@ -37,6 +37,7 @@ jobs:
           cargo run -- run --config config/bot.toml --output-dir outputs_rust_ci
           test -f outputs_rust_ci/factor_attribution.csv
           test -f outputs_rust_ci/factor_attribution_summary.txt
+          test -f outputs_rust_ci/config_used_redacted.toml
 
       - name: Smoke Plugin Override
         run: cargo run -- run --config config/bot.toml --output-dir outputs_rust_ci_momentum --strategy-plugin momentum_guard

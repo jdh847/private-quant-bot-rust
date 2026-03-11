@@ -110,6 +110,7 @@ Generates:
 - `outputs_rust/rejections.csv`
 - `outputs_rust/summary.txt`
 - `outputs_rust/dashboard.html`
+- `outputs_rust/config_used_redacted.toml` (best-effort redaction; avoid putting secrets in configs)
 - `outputs_rust/factor_attribution.csv`
 - `outputs_rust/factor_attribution_summary.txt`
 - `outputs_rust/robustness/robustness_folds.csv` (via `robustness`)
