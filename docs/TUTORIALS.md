@@ -28,6 +28,14 @@ cargo run -- serve --root outputs_rust/demo --bind 127.0.0.1:0 --lang en
 
 Open the printed URL (it redirects `/` to the latest `dashboard.html`).
 
+If your environment refuses to bind a local port (e.g. `Operation not permitted`), you can still read the dashboard by opening the HTML directly:
+
+```bash
+open "$(cat outputs_rust/demo/LATEST_DASHBOARD.txt)"
+```
+
+In that case, live refresh may show `fallback` depending on the browser's `file://` restrictions.
+
 ## 3) Research Leaderboard (Cross-Market)
 
 ```bash

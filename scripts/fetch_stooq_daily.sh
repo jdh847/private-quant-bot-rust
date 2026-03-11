@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Template data fetcher for daily bars using stooq.com CSV endpoints.
-# You are responsible for verifying data licensing/terms for your use case.
+# TEMPLATE ONLY. This script downloads daily bars via stooq.com CSV endpoints.
+#
+# Important:
+# - This repo does NOT endorse any vendor as an "official" data source.
+# - You are responsible for verifying licensing/terms and ensuring compliance.
+# - Do NOT redistribute downloaded data unless you have explicit rights.
+# - Data quality/adjustments (splits/dividends) are vendor-dependent.
+#
+# If you plan to use adjusted prices, transform data into the engine schema and set `adj_close`.
 #
 # Usage:
 #   ./scripts/fetch_stooq_daily.sh AAPL.US MSFT.US 7203.JP
@@ -18,6 +25,8 @@ if [[ $# -lt 1 ]]; then
   exit 2
 fi
 
+echo "NOTE: template-only downloader. verify licensing/terms before using."
+
 for sym in "$@"; do
   url="https://stooq.com/q/d/l/?s=${sym}&i=d"
   out="$out_dir/stooq_${sym}.csv"
@@ -26,4 +35,3 @@ for sym in "$@"; do
 done
 
 echo "done: $out_dir"
-

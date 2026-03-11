@@ -2,6 +2,18 @@
 
 This project is built to make research reproducible and avoid "mystery backtests". The bundled dataset is small and synthetic; for real research you must plug in your own data pipeline.
 
+## Data Sources / Licensing
+
+This repo ships only a tiny synthetic sample dataset under `data/`.
+
+If you fetch or generate real market data:
+
+- verify the provider's licensing/terms
+- do not commit or redistribute vendor data unless you have explicit rights
+- document your data lineage (provider, timestamps, adjustments, symbol mappings)
+
+`scripts/fetch_stooq_daily.sh` is provided as a **template** only. It is not an endorsed "official" source.
+
 ## Data Schema
 
 Market bars (CSV):
@@ -66,4 +78,3 @@ This helps you tie results to:
 - exact `config` hash
 - exact `data` file hashes
 - dataset date coverage
-
