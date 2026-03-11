@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::i18n::{dashboard_text, DashboardText, Language};
 
@@ -15,6 +15,63 @@ struct EquityRow {
     cash: f64,
     gross_exposure: f64,
     net_exposure: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct DataQualityRowUi {
+    market: String,
+    rows: i64,
+    unique_symbols: i64,
+    duplicate_rows: i64,
+    invalid_close_rows: i64,
+    invalid_volume_rows: i64,
+    date_order_violations: i64,
+    return_outliers: i64,
+    large_gaps: i64,
+    non_trading_day_rows: i64,
+    status: String,
+    issues: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct AuditMarketUi {
+    market: String,
+    currency: String,
+    fx_to_base: f64,
+    data_file: String,
+    data_sha256: String,
+    industry_file: String,
+    industry_sha256: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct AuditSnapshotCompat {
+    #[serde(default)]
+    config_sha256: String,
+    #[serde(default)]
+    markets: Vec<AuditMarketCompat>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct AuditMarketCompat {
+    #[serde(default)]
+    market: String,
+    #[serde(default)]
+    currency: String,
+    #[serde(default)]
+    fx_to_base: f64,
+    #[serde(default)]
+    data_file: AuditFileCompat,
+    #[serde(default)]
+    industry_file: Option<AuditFileCompat>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct AuditFileCompat {
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    sha256: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -62,6 +119,12 @@ struct DashboardI18nText {
     run_summary: String,
     audit: String,
     data_quality: String,
+    status: String,
+    rows: String,
+    issues: String,
+    data_file: String,
+    industry_file: String,
+    sha256: String,
     kpi_start_equity: String,
     kpi_end_equity: String,
     kpi_pnl: String,
@@ -110,6 +173,12 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         run_summary: t.run_summary.to_string(),
         audit: t.audit.to_string(),
         data_quality: t.data_quality.to_string(),
+        status: t.status.to_string(),
+        rows: t.rows.to_string(),
+        issues: t.issues.to_string(),
+        data_file: t.data_file.to_string(),
+        industry_file: t.industry_file.to_string(),
+        sha256: t.sha256.to_string(),
         kpi_start_equity: t.kpi_start_equity.to_string(),
         kpi_end_equity: t.kpi_end_equity.to_string(),
         kpi_pnl: t.kpi_pnl.to_string(),
@@ -172,6 +241,20 @@ pub fn build_dashboard_with_language(
     } else {
         output_dir.join("data_quality_summary.txt")
     };
+    let data_quality_report_path = if output_dir.join("data_quality_report.csv").exists() {
+        output_dir.join("data_quality_report.csv")
+    } else if output_dir
+        .join("data_quality")
+        .join("data_quality_report.csv")
+        .exists()
+    {
+        output_dir
+            .join("data_quality")
+            .join("data_quality_report.csv")
+    } else {
+        output_dir.join("data_quality_report.csv")
+    };
+    let audit_json_path = output_dir.join("audit_snapshot.json");
 
     let summary = fs::read_to_string(summary_path).unwrap_or_else(|_| "no summary".to_string());
     let summary_html = escape_html(&summary);
@@ -187,12 +270,17 @@ pub fn build_dashboard_with_language(
     let data_quality_summary = fs::read_to_string(&data_quality_summary_path)
         .unwrap_or_else(|_| "no data quality summary".to_string());
     let data_quality_html = escape_html(&data_quality_summary);
+    let data_quality_rows = read_data_quality_rows(&data_quality_report_path)?;
+    let (audit_config_sha, audit_markets) = read_audit_snapshot(&audit_json_path);
 
     let trade_json = serde_json::to_string(&trade_rows)?;
     let rejection_json = serde_json::to_string(&rejection_rows)?;
     let equity_rows_json = serde_json::to_string(&equity_rows)?;
     let summary_kv_json = serde_json::to_string(&summary_kv)?;
     let factor_kv_json = serde_json::to_string(&factor_kv)?;
+    let data_quality_json = serde_json::to_string(&data_quality_rows)?;
+    let audit_markets_json = serde_json::to_string(&audit_markets)?;
+    let audit_config_sha_json = serde_json::to_string(&audit_config_sha)?;
     let text = dashboard_text(language);
     let text_en = dashboard_text(Language::En);
     let text_zh = dashboard_text(Language::Zh);
@@ -284,6 +372,9 @@ th {{ color: var(--muted); font-weight: 600; }}
 .tag-buy {{ color: #065f46; background: #d1fae5; padding: 2px 6px; border-radius: 999px; font-weight: 700; }}
 .tag-sell {{ color: #7f1d1d; background: #fee2e2; padding: 2px 6px; border-radius: 999px; font-weight: 700; }}
 .pill {{ display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 6px 10px; border: 1px solid rgba(15,23,42,0.12); background: rgba(255,255,255,0.75); font-size: 12px; }}
+.pill.ok {{ background: rgba(209, 250, 229, 0.70); border-color: rgba(6, 95, 70, 0.25); color: #065f46; font-weight: 800; }}
+.pill.warn {{ background: rgba(254, 243, 199, 0.85); border-color: rgba(180, 83, 9, 0.25); color: #92400e; font-weight: 800; }}
+.pill.bad {{ background: rgba(254, 226, 226, 0.80); border-color: rgba(127, 29, 29, 0.25); color: #7f1d1d; font-weight: 800; }}
 .dot {{ width: 8px; height: 8px; border-radius: 999px; background: var(--accent2); }}
 .dot.ok {{ background: var(--accent); }}
 .filters {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }}
@@ -352,10 +443,34 @@ th {{ color: var(--muted); font-weight: 600; }}
         <div style="margin-top: 12px;">
           <h3 id="audit-title" style="margin:0 0 10px 0;">{audit}</h3>
           <div class="summary" id="audit-block">{audit_html}</div>
+          <div class="sub" id="audit-hint" style="margin-top:8px;"></div>
+          <table style="margin-top:10px;">
+            <thead>
+              <tr>
+                <th id="audit-th-market">{market}</th>
+                <th id="audit-th-data">{data_file}</th>
+                <th id="audit-th-sha">{sha256}</th>
+                <th id="audit-th-industry">{industry_file}</th>
+              </tr>
+            </thead>
+            <tbody id="audit-markets"></tbody>
+          </table>
         </div>
         <div style="margin-top: 12px;">
           <h3 id="data-quality-title" style="margin:0 0 10px 0;">{data_quality}</h3>
           <div class="summary" id="data-quality-block">{data_quality_html}</div>
+          <div class="sub" id="dq-hint" style="margin-top:8px;"></div>
+          <table style="margin-top:10px;">
+            <thead>
+              <tr>
+                <th id="dq-th-market">{market}</th>
+                <th id="dq-th-status">{status}</th>
+                <th id="dq-th-rows">{rows}</th>
+                <th id="dq-th-issues">{issues}</th>
+              </tr>
+            </thead>
+            <tbody id="dq-rows"></tbody>
+          </table>
         </div>
       </section>
     </div>
@@ -414,6 +529,9 @@ let trades = {trade_json};
 let rejections = {rejection_json};
 let summaryKv = {summary_kv_json};
 let factorKv = {factor_kv_json};
+let dataQualityRows = {data_quality_json};
+let auditMarkets = {audit_markets_json};
+let auditConfigSha = {audit_config_sha_json};
 const i18n = {i18n_json};
 const defaultLang = {default_lang_json};
 
@@ -791,6 +909,12 @@ function applyLanguage(lang) {{
   document.getElementById('rej-th-reason').textContent = text.reason;
 
   document.getElementById('factors-title').textContent = text.factors;
+  document.getElementById('dq-th-status').textContent = text.status;
+  document.getElementById('dq-th-rows').textContent = text.rows;
+  document.getElementById('dq-th-issues').textContent = text.issues;
+  document.getElementById('audit-th-data').textContent = text.data_file;
+  document.getElementById('audit-th-sha').textContent = text.sha256;
+  document.getElementById('audit-th-industry').textContent = text.industry_file;
 
   setupFilters(text);
   renderKpis(text);
@@ -798,6 +922,8 @@ function applyLanguage(lang) {{
   renderTrades(text);
   renderRejections();
   renderFactors(text);
+  renderDataQuality();
+  renderAudit();
 }}
 
 function parseCsv(text) {{
@@ -812,9 +938,68 @@ function parseCsv(text) {{
   }});
 }}
 
+function shortSha(s) {{
+  if (!s) return '';
+  if (s.length <= 12) return s;
+  return s.slice(0, 12) + '…';
+}}
+
+function renderDataQuality() {{
+  const body = document.getElementById('dq-rows');
+  const hint = document.getElementById('dq-hint');
+  if (!dataQualityRows || dataQualityRows.length === 0) {{
+    hint.textContent = 'data_quality_report.csv not found';
+    body.innerHTML = '';
+    return;
+  }}
+  hint.textContent = 'data_quality_report.csv';
+  body.innerHTML = dataQualityRows.map((r) => {{
+    const market = (r.market || '');
+    const status = (r.status || '');
+    const cls = status === 'PASS' ? 'ok' : (status === 'WARN' ? 'warn' : 'bad');
+    const rows = Number(r.rows || 0);
+    const issues = (r.issues || '');
+    return '<tr>'
+      + '<td>' + market + '</td>'
+      + '<td><span class=\"pill ' + cls + '\">' + status + '</span></td>'
+      + '<td>' + rows + '</td>'
+      + '<td class=\"sub\">' + issues + '</td>'
+      + '</tr>';
+  }}).join('');
+}}
+
+function renderAudit() {{
+  const body = document.getElementById('audit-markets');
+  const hint = document.getElementById('audit-hint');
+  if (!auditMarkets || auditMarkets.length === 0) {{
+    hint.textContent = 'audit_snapshot.json not found';
+    body.innerHTML = '';
+    return;
+  }}
+  hint.textContent = auditConfigSha
+    ? ('audit_snapshot.json | config_sha256=' + shortSha(auditConfigSha))
+    : 'audit_snapshot.json';
+  body.innerHTML = auditMarkets.map((r) => {{
+    const market = (r.market || '');
+    const dataFile = (r.data_file || '');
+    const dataSha = shortSha(r.data_sha256 || '');
+    const indFile = (r.industry_file || '');
+    const indSha = shortSha(r.industry_sha256 || '');
+    const indCell = indFile
+      ? (indFile + '<div class=\"sub\">' + indSha + '</div>')
+      : '<span class=\"sub\">-</span>';
+    return '<tr>'
+      + '<td>' + market + '</td>'
+      + '<td class=\"sub\">' + dataFile + '</td>'
+      + '<td class=\"sub\">' + dataSha + '</td>'
+      + '<td class=\"sub\">' + indCell + '</td>'
+      + '</tr>';
+  }}).join('');
+}}
+
 async function refreshFromFiles() {{
   try {{
-    const [summaryResp, equityResp, tradesResp, rejResp, factorResp, auditResp, dqResp, dq2Resp] =
+    const [summaryResp, equityResp, tradesResp, rejResp, factorResp, auditResp, dqResp, dq2Resp, dqReportResp, auditJsonResp] =
       await Promise.all([
       fetch('./summary.txt', {{ cache: 'no-store' }}),
       fetch('./equity_curve.csv', {{ cache: 'no-store' }}),
@@ -824,6 +1009,8 @@ async function refreshFromFiles() {{
       fetch('./audit_snapshot_summary.txt', {{ cache: 'no-store' }}),
       fetch('./data_quality_summary.txt', {{ cache: 'no-store' }}).catch(() => null),
       fetch('./data_quality/data_quality_summary.txt', {{ cache: 'no-store' }}).catch(() => null),
+      fetch('./data_quality_report.csv', {{ cache: 'no-store' }}).catch(() => null),
+      fetch('./audit_snapshot.json', {{ cache: 'no-store' }}).catch(() => null),
     ]);
 
     if (summaryResp.ok) {{
@@ -839,6 +1026,44 @@ async function refreshFromFiles() {{
       const t = dqResp && dqResp.ok ? await dqResp.text() : '';
       const t2 = dq2Resp && dq2Resp.ok ? await dq2Resp.text() : '';
       document.getElementById('data-quality-block').textContent = t || t2 || 'no data quality summary';
+    }}
+    if (dqReportResp && dqReportResp.ok) {{
+      const t = await dqReportResp.text();
+      const rows = parseCsv(t);
+      dataQualityRows = rows.map((r) => {{
+        const issues =
+          (r.duplicate_rows && Number(r.duplicate_rows) > 0 ? ('dup=' + r.duplicate_rows + ' ') : '') +
+          (r.invalid_close_rows && Number(r.invalid_close_rows) > 0 ? ('bad_close=' + r.invalid_close_rows + ' ') : '') +
+          (r.invalid_volume_rows && Number(r.invalid_volume_rows) > 0 ? ('bad_vol=' + r.invalid_volume_rows + ' ') : '') +
+          (r.date_order_violations && Number(r.date_order_violations) > 0 ? ('date_order=' + r.date_order_violations + ' ') : '') +
+          (r.return_outliers && Number(r.return_outliers) > 0 ? ('outliers=' + r.return_outliers + ' ') : '') +
+          (r.large_gaps && Number(r.large_gaps) > 0 ? ('gaps=' + r.large_gaps + ' ') : '') +
+          (r.non_trading_day_rows && Number(r.non_trading_day_rows) > 0 ? ('non_trading=' + r.non_trading_day_rows + ' ') : '');
+        return {{
+          market: r.market || '',
+          status: r.status || '',
+          rows: Number(r.rows || 0),
+          issues: issues.trim(),
+        }};
+      }});
+    }}
+    if (auditJsonResp && auditJsonResp.ok) {{
+      const t = await auditJsonResp.text();
+      try {{
+        const obj = JSON.parse(t);
+        auditConfigSha = obj.config_sha256 || '';
+        auditMarkets = (obj.markets || []).map((m) => {{
+          return {{
+            market: m.market || '',
+            currency: m.currency || '',
+            fx_to_base: Number(m.fx_to_base || 0),
+            data_file: (m.data_file && m.data_file.path) ? m.data_file.path : '',
+            data_sha256: (m.data_file && m.data_file.sha256) ? m.data_file.sha256 : '',
+            industry_file: (m.industry_file && m.industry_file.path) ? m.industry_file.path : '',
+            industry_sha256: (m.industry_file && m.industry_file.sha256) ? m.industry_file.sha256 : '',
+          }};
+        }});
+      }} catch (e) {{}}
     }}
     if (equityResp.ok) {{
       const equityText = await equityResp.text();
@@ -931,6 +1156,12 @@ refreshFromFiles();
         run_summary = text.run_summary,
         audit = text.audit,
         data_quality = text.data_quality,
+        status = text.status,
+        rows = text.rows,
+        issues = text.issues,
+        data_file = text.data_file,
+        industry_file = text.industry_file,
+        sha256 = text.sha256,
         recent_trades = text.recent_trades,
         date = text.date,
         market = text.market,
@@ -950,6 +1181,9 @@ refreshFromFiles();
         rejection_json = rejection_json,
         summary_kv_json = summary_kv_json,
         factor_kv_json = factor_kv_json,
+        data_quality_json = data_quality_json,
+        audit_markets_json = audit_markets_json,
+        audit_config_sha_json = audit_config_sha_json,
         i18n_json = i18n_json,
         default_lang_json = default_lang_json,
     );
@@ -1057,6 +1291,110 @@ fn parse_kv_lines(text: &str) -> serde_json::Value {
         );
     }
     serde_json::Value::Object(map)
+}
+
+fn read_data_quality_rows(path: &Path) -> Result<Vec<DataQualityRowUi>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let mut rdr = csv::Reader::from_path(path)?;
+    let headers = rdr
+        .headers()
+        .map(|h| h.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    let idx = |name: &str| headers.iter().position(|h| h == name);
+    let n64 = |s: &str| s.parse::<i64>().unwrap_or(0);
+    fn get(rec: &csv::StringRecord, i: Option<usize>) -> &str {
+        i.and_then(|x| rec.get(x)).unwrap_or("")
+    }
+
+    let mut out = Vec::new();
+    for rec in rdr.records() {
+        let rec = rec?;
+        let market = get(&rec, idx("market")).to_string();
+        let status = get(&rec, idx("status")).to_string();
+        let rows = n64(get(&rec, idx("rows")));
+        let unique_symbols = n64(get(&rec, idx("unique_symbols")));
+        let duplicate_rows = n64(get(&rec, idx("duplicate_rows")));
+        let invalid_close_rows = n64(get(&rec, idx("invalid_close_rows")));
+        let invalid_volume_rows = n64(get(&rec, idx("invalid_volume_rows")));
+        let date_order_violations = n64(get(&rec, idx("date_order_violations")));
+        let return_outliers = n64(get(&rec, idx("return_outliers")));
+        let large_gaps = n64(get(&rec, idx("large_gaps")));
+        let non_trading_day_rows = n64(get(&rec, idx("non_trading_day_rows")));
+
+        let mut issues = Vec::new();
+        if duplicate_rows > 0 {
+            issues.push(format!("dup={duplicate_rows}"));
+        }
+        if invalid_close_rows > 0 {
+            issues.push(format!("bad_close={invalid_close_rows}"));
+        }
+        if invalid_volume_rows > 0 {
+            issues.push(format!("bad_vol={invalid_volume_rows}"));
+        }
+        if date_order_violations > 0 {
+            issues.push(format!("date_order={date_order_violations}"));
+        }
+        if return_outliers > 0 {
+            issues.push(format!("outliers={return_outliers}"));
+        }
+        if large_gaps > 0 {
+            issues.push(format!("gaps={large_gaps}"));
+        }
+        if non_trading_day_rows > 0 {
+            issues.push(format!("non_trading={non_trading_day_rows}"));
+        }
+
+        out.push(DataQualityRowUi {
+            market,
+            rows,
+            unique_symbols,
+            duplicate_rows,
+            invalid_close_rows,
+            invalid_volume_rows,
+            date_order_violations,
+            return_outliers,
+            large_gaps,
+            non_trading_day_rows,
+            status,
+            issues: issues.join(" "),
+        });
+    }
+    out.sort_by(|a, b| a.market.cmp(&b.market));
+    Ok(out)
+}
+
+fn read_audit_snapshot(path: &Path) -> (String, Vec<AuditMarketUi>) {
+    let Ok(s) = fs::read_to_string(path) else {
+        return (String::new(), Vec::new());
+    };
+    let snap: AuditSnapshotCompat = serde_json::from_str(&s).unwrap_or_default();
+    let mut out = Vec::new();
+    for m in snap.markets {
+        let industry_file = m
+            .industry_file
+            .as_ref()
+            .map(|f| f.path.clone())
+            .unwrap_or_default();
+        let industry_sha256 = m
+            .industry_file
+            .as_ref()
+            .map(|f| f.sha256.clone())
+            .unwrap_or_default();
+        out.push(AuditMarketUi {
+            market: m.market,
+            currency: m.currency,
+            fx_to_base: m.fx_to_base,
+            data_file: m.data_file.path,
+            data_sha256: m.data_file.sha256,
+            industry_file,
+            industry_sha256,
+        });
+    }
+    out.sort_by(|a, b| a.market.cmp(&b.market));
+    (snap.config_sha256, out)
 }
 
 #[cfg(test)]

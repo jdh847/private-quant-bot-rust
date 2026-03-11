@@ -86,6 +86,8 @@ jobs:
           grep -q '<html lang="ja">' outputs_rust_ci/dashboard.html
           grep -q 'id="lang-switch"' outputs_rust_ci/dashboard.html
           grep -q 'id="live-status"' outputs_rust_ci/dashboard.html
+          grep -q 'id="audit-markets"' outputs_rust_ci/dashboard.html
+          grep -q 'id="dq-rows"' outputs_rust_ci/dashboard.html
 
       - name: Smoke Benchmark Matrix
         run: |
