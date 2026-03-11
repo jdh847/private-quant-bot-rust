@@ -32,7 +32,7 @@ use private_quant_bot::{
         check_strategy_sdk, create_strategy_sdk, register_strategy_sdk, SdkInitRequest,
         SdkRegisterRequest,
     },
-    serve::{inspect_dashboard_server, run_dashboard_server, ServeRequest},
+    serve::{serve_forever, start_dashboard_server, ServeRequest},
     strategy::{is_supported_strategy_plugin, runtime_strategy_plugin_catalog},
     ui::build_dashboard_with_language,
 };
@@ -423,7 +423,7 @@ fn serve_command(root: &str, bind: &str, prefer_latest: bool, language: Language
         bind: bind.to_string(),
         prefer_latest,
     };
-    let report = inspect_dashboard_server(&req)?;
+    let (report, listener) = start_dashboard_server(&req)?;
     println!(
         "{} | {}={} | {}={}",
         msg_server_started(language),
@@ -438,8 +438,11 @@ fn serve_command(root: &str, bind: &str, prefer_latest: bool, language: Language
         println!("default: (none)");
     }
     println!("{}", msg_server_ctrl_c(language));
-    let _ = run_dashboard_server(&req)?;
-    Ok(())
+    serve_forever(
+        listener,
+        &report.root_dir,
+        report.default_doc_rel.as_deref(),
+    );
 }
 
 fn demo_command(

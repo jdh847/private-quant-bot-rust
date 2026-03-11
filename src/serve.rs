@@ -41,27 +41,47 @@ pub fn inspect_dashboard_server(req: &ServeRequest) -> Result<ServeReport> {
     })
 }
 
-pub fn run_dashboard_server(req: &ServeRequest) -> Result<ServeReport> {
-    let report = inspect_dashboard_server(req)?;
-    let listener =
-        TcpListener::bind(&report.bind).with_context(|| format!("bind to {} failed", req.bind))?;
+pub fn start_dashboard_server(req: &ServeRequest) -> Result<(ServeReport, TcpListener)> {
+    let mut report = inspect_dashboard_server(req)?;
+    let listener = TcpListener::bind(&report.bind)
+        .with_context(|| format!("bind to {} failed", report.bind))?;
 
+    // If bind used port 0, update to the actual local address.
+    let addr = listener
+        .local_addr()
+        .context("read listener local_addr failed")?
+        .to_string();
+    report.bind = addr;
+    report.base_url = format!("http://{}/", report.bind);
+
+    Ok((report, listener))
+}
+
+pub fn run_dashboard_server(req: &ServeRequest) -> Result<ServeReport> {
+    let (report, listener) = start_dashboard_server(req)?;
+    serve_forever(
+        listener,
+        &report.root_dir,
+        report.default_doc_rel.as_deref(),
+    );
+
+    #[allow(unreachable_code)]
+    Ok(report)
+}
+
+pub fn serve_forever(listener: TcpListener, root_dir: &Path, default_doc_rel: Option<&str>) -> ! {
     // Simple, single-threaded file server. This is only meant for local usage.
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                if let Err(err) =
-                    handle_connection(stream, &report.root_dir, report.default_doc_rel.as_deref())
-                {
+                if let Err(err) = handle_connection(stream, root_dir, default_doc_rel) {
                     eprintln!("serve warning: {err:#}");
                 }
             }
             Err(err) => eprintln!("serve warning: accept failed: {err}"),
         }
     }
-
-    #[allow(unreachable_code)]
-    Ok(report)
+    std::process::exit(0);
 }
 
 fn handle_connection(
