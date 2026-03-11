@@ -10,6 +10,7 @@ use private_quant_bot::{
     daemon::{run_paper_daemon, PaperDaemonRequest},
     data::CsvDataPortal,
     data_quality::{run_data_quality_check, DataQualityRequest},
+    doctor::{run_doctor, DoctorRequest},
     engine::{summarize_result, BacktestStats, QuantBotEngine},
     i18n::{
         msg_benchmark_completed, msg_dashboard, msg_demo_completed, msg_open_dashboard_hint,
@@ -70,6 +71,12 @@ enum Command {
         bind: String,
         #[arg(long, default_value_t = true)]
         prefer_latest: bool,
+    },
+    Doctor {
+        #[arg(long, default_value = "config/bot.toml")]
+        config: String,
+        #[arg(long, default_value_t = false)]
+        json: bool,
     },
     Optimize {
         #[arg(long, default_value = "config/bot.toml")]
@@ -262,6 +269,7 @@ fn main() -> Result<()> {
             bind,
             prefer_latest,
         } => serve_command(&root, &bind, prefer_latest, language),
+        Command::Doctor { config, json } => doctor_command(&config, json),
         Command::Optimize {
             config,
             output_dir,
@@ -443,6 +451,47 @@ fn serve_command(root: &str, bind: &str, prefer_latest: bool, language: Language
         &report.root_dir,
         report.default_doc_rel.as_deref(),
     );
+}
+
+fn doctor_command(config_path: &str, json: bool) -> Result<()> {
+    let report = run_doctor(&DoctorRequest {
+        config_path: PathBuf::from(config_path),
+    })?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
+    let range = match (&report.first_date, &report.last_date) {
+        (Some(a), Some(b)) => format!("{a}..{b}"),
+        _ => "-".to_string(),
+    };
+    println!(
+        "doctor ok | config={} paper_only={} broker_mode={} dates={} range={}",
+        report.config_path.display(),
+        report.paper_only,
+        report.broker_mode,
+        report.dates,
+        range
+    );
+    for m in &report.markets {
+        let span = match (&m.first_date, &m.last_date) {
+            (Some(a), Some(b)) => format!("{a}..{b}"),
+            _ => "-".to_string(),
+        };
+        println!(
+            "market={} alloc={:.3} ccy={} fx_to_base={:.6} industry_symbols={} span={} last_day_bars={}",
+            m.market,
+            m.allocation,
+            m.currency,
+            m.fx_to_base,
+            m.industry_map_symbols,
+            span,
+            m.last_day_bars
+        );
+    }
+    Ok(())
 }
 
 fn demo_command(

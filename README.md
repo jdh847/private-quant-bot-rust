@@ -84,6 +84,12 @@ cargo run -- run --config config/bot.toml --output-dir outputs_rust --strategy-p
 
 Supported language tags: `en` / `zh` / `ja`.
 
+Sanity check your setup:
+
+```bash
+cargo run -- doctor --config config/bot.toml
+```
+
 Generates:
 
 - `outputs_rust/equity_curve.csv`

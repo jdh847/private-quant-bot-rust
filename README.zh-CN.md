@@ -52,6 +52,12 @@ cargo run -- dashboard --output-dir outputs_rust --lang zh
 cargo run -- plugins
 ```
 
+检查环境与数据是否可跑：
+
+```bash
+cargo run -- doctor --config config/bot.toml
+```
+
 生成策略插件脚手架：
 
 ```bash

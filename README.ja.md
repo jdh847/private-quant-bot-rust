@@ -52,6 +52,12 @@ cargo run -- dashboard --output-dir outputs_rust --lang ja
 cargo run -- plugins
 ```
 
+環境とデータの動作確認:
+
+```bash
+cargo run -- doctor --config config/bot.toml
+```
+
 戦略プラグインの雛形を生成:
 
 ```bash

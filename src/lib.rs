@@ -6,6 +6,7 @@ pub mod control_center;
 pub mod daemon;
 pub mod data;
 pub mod data_quality;
+pub mod doctor;
 pub mod engine;
 pub mod execution;
 pub mod fx;
