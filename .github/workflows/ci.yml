@@ -102,3 +102,11 @@ jobs:
       - name: Smoke Paper Daemon
         run: |
           cargo run -- paper-daemon --config config/bot.toml --output-dir outputs_rust_ci_daemon --cycles 1 --sleep-secs 0 --alert-drawdown-ratio 0.03
+
+      - name: Smoke Synthetic Dataset Generator
+        run: |
+          cargo run -- gen-synth-data --output-dir outputs_rust_ci_synth --seed 7 --us-symbols 3 --a-symbols 3 --jp-symbols 3 --force
+          test -f outputs_rust_ci_synth/us_equities.csv
+          test -f outputs_rust_ci_synth/a_share.csv
+          test -f outputs_rust_ci_synth/jp_equities.csv
+          test -f outputs_rust_ci_synth/us_industries.csv

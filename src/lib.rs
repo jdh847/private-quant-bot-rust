@@ -30,4 +30,5 @@ pub mod scaffold;
 pub mod sdk;
 pub mod serve;
 pub mod strategy;
+pub mod synth_data;
 pub mod ui;

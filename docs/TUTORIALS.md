@@ -53,6 +53,27 @@ Expected:
 - `outputs_rust/research/research_leaderboard.csv`
 - `outputs_rust/research/research_leaderboard.md`
 
+## 4) Data Quality Check (Credibility Gate)
+
+Run the validator on your dataset (pass the same `--output-dir` as your run if you want it shown in the dashboard):
+
+```bash
+cargo run -- validate-data --config config/bot.toml --output-dir outputs_rust --return-outlier-threshold 0.35 --gap-days-threshold 10
+```
+
+Expected:
+
+- `outputs_rust/data_quality_report.csv`
+- `outputs_rust/data_quality_summary.txt`
+
+## 5) Generate a Reproducible Synthetic Dataset (No External Data)
+
+```bash
+cargo run -- gen-synth-data --output-dir data_synth --seed 42 --us-symbols 12 --a-symbols 12 --jp-symbols 12 --force
+```
+
+Then update `config/bot.toml` `markets.*.data_file` paths to point at `data_synth/*.csv`.
+
 ## Scripts
 
 Runnable helpers:

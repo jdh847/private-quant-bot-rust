@@ -60,6 +60,8 @@ struct DashboardI18nText {
     net_exposure: String,
     equity_curve: String,
     run_summary: String,
+    audit: String,
+    data_quality: String,
     kpi_start_equity: String,
     kpi_end_equity: String,
     kpi_pnl: String,
@@ -106,6 +108,8 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         net_exposure: t.net_exposure.to_string(),
         equity_curve: t.equity_curve.to_string(),
         run_summary: t.run_summary.to_string(),
+        audit: t.audit.to_string(),
+        data_quality: t.data_quality.to_string(),
         kpi_start_equity: t.kpi_start_equity.to_string(),
         kpi_end_equity: t.kpi_end_equity.to_string(),
         kpi_pnl: t.kpi_pnl.to_string(),
@@ -154,6 +158,20 @@ pub fn build_dashboard_with_language(
     let trades_path = output_dir.join("trades.csv");
     let rejections_path = output_dir.join("rejections.csv");
     let factor_summary_path = output_dir.join("factor_attribution_summary.txt");
+    let audit_summary_path = output_dir.join("audit_snapshot_summary.txt");
+    let data_quality_summary_path = if output_dir.join("data_quality_summary.txt").exists() {
+        output_dir.join("data_quality_summary.txt")
+    } else if output_dir
+        .join("data_quality")
+        .join("data_quality_summary.txt")
+        .exists()
+    {
+        output_dir
+            .join("data_quality")
+            .join("data_quality_summary.txt")
+    } else {
+        output_dir.join("data_quality_summary.txt")
+    };
 
     let summary = fs::read_to_string(summary_path).unwrap_or_else(|_| "no summary".to_string());
     let summary_html = escape_html(&summary);
@@ -163,6 +181,12 @@ pub fn build_dashboard_with_language(
     let rejection_rows = read_rejection_rows(&rejections_path)?;
     let factor_summary = fs::read_to_string(&factor_summary_path).unwrap_or_else(|_| String::new());
     let factor_kv = parse_kv_lines(&factor_summary);
+    let audit_summary =
+        fs::read_to_string(&audit_summary_path).unwrap_or_else(|_| "no audit snapshot".to_string());
+    let audit_html = escape_html(&audit_summary);
+    let data_quality_summary = fs::read_to_string(&data_quality_summary_path)
+        .unwrap_or_else(|_| "no data quality summary".to_string());
+    let data_quality_html = escape_html(&data_quality_summary);
 
     let trade_json = serde_json::to_string(&trade_rows)?;
     let rejection_json = serde_json::to_string(&rejection_rows)?;
@@ -324,6 +348,14 @@ th {{ color: var(--muted); font-weight: 600; }}
         <div style="margin-top: 12px;">
           <h3 id="run-summary" style="margin:0 0 10px 0;">{run_summary}</h3>
           <div class="summary" id="summary-block">{summary_html}</div>
+        </div>
+        <div style="margin-top: 12px;">
+          <h3 id="audit-title" style="margin:0 0 10px 0;">{audit}</h3>
+          <div class="summary" id="audit-block">{audit_html}</div>
+        </div>
+        <div style="margin-top: 12px;">
+          <h3 id="data-quality-title" style="margin:0 0 10px 0;">{data_quality}</h3>
+          <div class="summary" id="data-quality-block">{data_quality_html}</div>
         </div>
       </section>
     </div>
@@ -739,6 +771,8 @@ function applyLanguage(lang) {{
   document.getElementById('series-label').textContent = text.series;
   document.getElementById('equity-curve').textContent = text.equity_curve;
   document.getElementById('run-summary').textContent = text.run_summary;
+  document.getElementById('audit-title').textContent = text.audit;
+  document.getElementById('data-quality-title').textContent = text.data_quality;
   document.getElementById('recent-trades').textContent = text.recent_trades;
   document.getElementById('th-date').textContent = text.date;
   document.getElementById('th-market').textContent = text.market;
@@ -780,18 +814,31 @@ function parseCsv(text) {{
 
 async function refreshFromFiles() {{
   try {{
-    const [summaryResp, equityResp, tradesResp, rejResp, factorResp] = await Promise.all([
+    const [summaryResp, equityResp, tradesResp, rejResp, factorResp, auditResp, dqResp, dq2Resp] =
+      await Promise.all([
       fetch('./summary.txt', {{ cache: 'no-store' }}),
       fetch('./equity_curve.csv', {{ cache: 'no-store' }}),
       fetch('./trades.csv', {{ cache: 'no-store' }}),
       fetch('./rejections.csv', {{ cache: 'no-store' }}),
       fetch('./factor_attribution_summary.txt', {{ cache: 'no-store' }}),
+      fetch('./audit_snapshot_summary.txt', {{ cache: 'no-store' }}),
+      fetch('./data_quality_summary.txt', {{ cache: 'no-store' }}).catch(() => null),
+      fetch('./data_quality/data_quality_summary.txt', {{ cache: 'no-store' }}).catch(() => null),
     ]);
 
     if (summaryResp.ok) {{
       const s = await summaryResp.text();
       summaryBlock.textContent = s;
       summaryKv = parseKv(s);
+    }}
+    if (auditResp.ok) {{
+      const a = await auditResp.text();
+      document.getElementById('audit-block').textContent = a;
+    }}
+    if (dqResp || dq2Resp) {{
+      const t = dqResp && dqResp.ok ? await dqResp.text() : '';
+      const t2 = dq2Resp && dq2Resp.ok ? await dq2Resp.text() : '';
+      document.getElementById('data-quality-block').textContent = t || t2 || 'no data quality summary';
     }}
     if (equityResp.ok) {{
       const equityText = await equityResp.text();
@@ -882,6 +929,8 @@ refreshFromFiles();
         series = text.series,
         equity_curve = text.equity_curve,
         run_summary = text.run_summary,
+        audit = text.audit,
+        data_quality = text.data_quality,
         recent_trades = text.recent_trades,
         date = text.date,
         market = text.market,
@@ -894,6 +943,8 @@ refreshFromFiles();
         reason = text.reason,
         factors = text.factors,
         summary_html = summary_html,
+        audit_html = audit_html,
+        data_quality_html = data_quality_html,
         equity_rows_json = equity_rows_json,
         trade_json = trade_json,
         rejection_json = rejection_json,

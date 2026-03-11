@@ -37,6 +37,7 @@ use private_quant_bot::{
     },
     serve::{serve_forever, start_dashboard_server, ServeRequest},
     strategy::{is_supported_strategy_plugin, runtime_strategy_plugin_catalog},
+    synth_data::{generate_synth_dataset, SynthDatasetRequest},
     ui::build_dashboard_with_language,
 };
 
@@ -247,6 +248,26 @@ enum Command {
         #[arg(long, default_value_t = false)]
         force: bool,
     },
+    GenSynthData {
+        #[arg(long, default_value = "data_synth")]
+        output_dir: String,
+        #[arg(long, default_value = "2025-01-02")]
+        start_date: String,
+        #[arg(long, default_value = "2026-12-31")]
+        end_date: String,
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+        #[arg(long, default_value_t = 6)]
+        us_symbols: usize,
+        #[arg(long, default_value_t = 6)]
+        a_symbols: usize,
+        #[arg(long, default_value_t = 6)]
+        jp_symbols: usize,
+        #[arg(long, default_value_t = 3)]
+        industries_per_market: usize,
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -434,7 +455,71 @@ fn main() -> Result<()> {
             output_dir,
             force,
         } => scaffold_plugin_command(&id, &output_dir, force),
+        Command::GenSynthData {
+            output_dir,
+            start_date,
+            end_date,
+            seed,
+            us_symbols,
+            a_symbols,
+            jp_symbols,
+            industries_per_market,
+            force,
+        } => gen_synth_data_command(GenSynthDataArgs {
+            output_dir,
+            start_date,
+            end_date,
+            seed,
+            us_symbols,
+            a_symbols,
+            jp_symbols,
+            industries_per_market,
+            force,
+        }),
     }
+}
+
+#[derive(Debug, Clone)]
+struct GenSynthDataArgs {
+    output_dir: String,
+    start_date: String,
+    end_date: String,
+    seed: u64,
+    us_symbols: usize,
+    a_symbols: usize,
+    jp_symbols: usize,
+    industries_per_market: usize,
+    force: bool,
+}
+
+fn gen_synth_data_command(args: GenSynthDataArgs) -> Result<()> {
+    let start = chrono::NaiveDate::parse_from_str(&args.start_date, "%Y-%m-%d").with_context(
+        || format!("invalid start_date: {} (expected YYYY-MM-DD)", args.start_date),
+    )?;
+    let end = chrono::NaiveDate::parse_from_str(&args.end_date, "%Y-%m-%d").with_context(|| {
+        format!(
+            "invalid end_date: {} (expected YYYY-MM-DD)",
+            args.end_date
+        )
+    })?;
+
+    generate_synth_dataset(&SynthDatasetRequest {
+        output_dir: PathBuf::from(&args.output_dir),
+        start_date: start,
+        end_date: end,
+        seed: args.seed,
+        us_symbols: args.us_symbols,
+        a_symbols: args.a_symbols,
+        jp_symbols: args.jp_symbols,
+        industries_per_market: args.industries_per_market,
+        force: args.force,
+    })?;
+
+    println!(
+        "synthetic dataset generated: {} (US={} A={} JP={} seed={})",
+        args.output_dir, args.us_symbols, args.a_symbols, args.jp_symbols, args.seed
+    );
+    Ok(())
 }
 
 fn serve_command(root: &str, bind: &str, prefer_latest: bool, language: Language) -> Result<()> {

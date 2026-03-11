@@ -5,6 +5,7 @@ This project is built to make research reproducible and avoid "mystery backtests
 ## Data Sources / Licensing
 
 This repo ships only a tiny synthetic sample dataset under `data/`.
+For larger local experiments without external data, use `gen-synth-data` to generate a reproducible synthetic dataset.
 
 If you fetch or generate real market data:
 
@@ -64,6 +65,8 @@ Backtests are daily-bar based. The calendar is a small hard-coded holiday set fo
 See: `src/calendar.rs`.
 
 If you run outside the covered dates, you should extend the holiday lists or replace the calendar with a proper service.
+
+The `validate-data` command also flags rows that fall on non-trading days (weekends/known holidays) as a `WARN`.
 
 ## Reproducibility: Dataset Manifest
 

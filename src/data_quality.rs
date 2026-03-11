@@ -8,6 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::NaiveDate;
 use serde::Deserialize;
 
+use crate::calendar::ExchangeCalendar;
 use crate::config::BotConfig;
 
 #[derive(Debug, Clone)]
@@ -27,6 +28,7 @@ pub struct DataQualityRow {
     pub date_order_violations: usize,
     pub return_outliers: usize,
     pub large_gaps: usize,
+    pub non_trading_day_rows: usize,
     pub status: String,
 }
 
@@ -94,6 +96,9 @@ fn inspect_market_csv(
     let mut date_order_violations = 0usize;
     let mut return_outliers = 0usize;
     let mut large_gaps = 0usize;
+    let mut non_trading_day_rows = 0usize;
+
+    let cal = ExchangeCalendar::new();
 
     for record in rdr.deserialize::<CsvBar>() {
         let record = record.with_context(|| format!("parse csv row failed: {}", path.display()))?;
@@ -104,6 +109,10 @@ fn inspect_market_csv(
             .with_context(|| format!("invalid date {} in {}", record.date, path.display()))?;
         if !seen.insert((date, record.symbol.clone())) {
             duplicate_rows += 1;
+        }
+
+        if !cal.is_trading_day(market, date) {
+            non_trading_day_rows += 1;
         }
 
         let close = record.adj_close.unwrap_or(record.close);
@@ -141,7 +150,7 @@ fn inspect_market_csv(
         || date_order_violations > 0
     {
         "FAIL"
-    } else if return_outliers > 0 || large_gaps > 0 {
+    } else if return_outliers > 0 || large_gaps > 0 || non_trading_day_rows > 0 {
         "WARN"
     } else {
         "PASS"
@@ -158,6 +167,7 @@ fn inspect_market_csv(
         date_order_violations,
         return_outliers,
         large_gaps,
+        non_trading_day_rows,
         status,
     })
 }
@@ -178,6 +188,7 @@ fn write_report(output_dir: impl AsRef<Path>, report: &DataQualityReport) -> Res
         "date_order_violations",
         "return_outliers",
         "large_gaps",
+        "non_trading_day_rows",
         "status",
     ])?;
     for row in &report.rows {
@@ -191,6 +202,7 @@ fn write_report(output_dir: impl AsRef<Path>, report: &DataQualityReport) -> Res
             row.date_order_violations.to_string(),
             row.return_outliers.to_string(),
             row.large_gaps.to_string(),
+            row.non_trading_day_rows.to_string(),
             row.status.clone(),
         ])?;
     }
