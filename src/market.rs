@@ -54,8 +54,39 @@ impl MarketRuleEngine {
             .iter()
             .map(|b| ((b.market.clone(), b.symbol.clone()), b.close))
             .collect();
+        let volume_map: HashMap<PriceKey, f64> = bars
+            .iter()
+            .map(|b| ((b.market.clone(), b.symbol.clone()), b.volume))
+            .collect();
 
         for order in orders {
+            let key = (order.market.clone(), order.symbol.clone());
+            let px = close_map.get(&key).copied().unwrap_or(0.0);
+            let vol = volume_map.get(&key).copied().unwrap_or(0.0);
+            if !(px.is_finite() && px > 0.0) {
+                rejected.push(RiskRejection {
+                    date,
+                    market: order.market.clone(),
+                    symbol: order.symbol.clone(),
+                    side: order.side,
+                    qty: order.qty,
+                    reason: "missing/invalid price for symbol today (halted or data gap)"
+                        .to_string(),
+                });
+                continue;
+            }
+            if !(vol.is_finite() && vol > 0.0) {
+                rejected.push(RiskRejection {
+                    date,
+                    market: order.market.clone(),
+                    symbol: order.symbol.clone(),
+                    side: order.side,
+                    qty: order.qty,
+                    reason: "zero volume today (halted/illiquid)".to_string(),
+                });
+                continue;
+            }
+
             if !self.calendar.is_trading_day(&order.market, date) {
                 rejected.push(RiskRejection {
                     date,
@@ -90,7 +121,6 @@ impl MarketRuleEngine {
             }
 
             if let Some(limit) = policy.price_limit_pct {
-                let key = (order.market.clone(), order.symbol.clone());
                 if let (Some(prev_close), Some(current_close)) =
                     (self.previous_closes.get(&key), close_map.get(&key))
                 {

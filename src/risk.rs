@@ -129,6 +129,17 @@ impl UnifiedRiskManager {
         runtime.last_refresh_date = Some(date);
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_market_fx_for_test(&mut self, market: &str, fx_to_base: f64) {
+        self.market_fx_to_base
+            .insert(market.to_string(), fx_to_base);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn market_fx_to_base_for_test(&self, market: &str) -> f64 {
+        self.market_fx_to_base.get(market).copied().unwrap_or(1.0)
+    }
+
     fn update_daily_lock(&mut self, current_equity: f64) {
         if self.start_day_equity <= 0.0 {
             return;
@@ -279,6 +290,25 @@ mod tests {
     };
 
     use super::UnifiedRiskManager;
+
+    #[test]
+    fn fx_failure_falls_back_to_static_rates() {
+        let cfg = load_config("config/bot.toml").expect("load cfg");
+
+        let mut fx_cfg = cfg.fx.clone();
+        fx_cfg.live_enabled = true;
+        fx_cfg.provider_url = "https://example.invalid".to_string();
+        fx_cfg.timeout_ms = 10;
+        fx_cfg.refresh_interval_days = 1;
+        fx_cfg.failure_cooldown_days = 1;
+
+        let mut rm = UnifiedRiskManager::new(cfg.risk.clone(), &cfg.markets, &fx_cfg, "USD");
+        rm.set_market_fx_for_test("A", 999.0);
+        rm.refresh_live_fx_if_enabled(NaiveDate::from_ymd_opt(2025, 1, 2).expect("date"));
+
+        let fx = rm.market_fx_to_base_for_test("A");
+        assert!((fx - cfg.markets["A"].fx_to_base).abs() < 1e-12);
+    }
 
     #[test]
     fn currency_exposure_limit_blocks_order() {

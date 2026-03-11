@@ -12,6 +12,8 @@ struct CsvBar {
     date: String,
     symbol: String,
     close: f64,
+    #[serde(default)]
+    adj_close: Option<f64>,
     volume: f64,
 }
 
@@ -45,7 +47,8 @@ impl CsvDataPortal {
                     date: bar_date,
                     market: market.clone(),
                     symbol: row.symbol,
-                    close: row.close,
+                    // If present, prefer adjusted close for corporate actions.
+                    close: row.adj_close.unwrap_or(row.close),
                     volume: row.volume,
                 };
 

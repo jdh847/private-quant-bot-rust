@@ -14,6 +14,7 @@ use serde_json::Value;
 use crate::{
     config::{BotConfig, IbkrConfig, MarketExecutionCost},
     model::{Order, Position, PriceKey, PriceMap, Side, Trade},
+    safety::ensure_network_allowed,
 };
 
 pub trait ExecutionAdapter {
@@ -406,6 +407,7 @@ pub struct IbkrPaperAdapter {
 impl IbkrPaperAdapter {
     fn new(sim: PaperBroker, cfg: IbkrConfig) -> Result<Self> {
         let client = if cfg.enabled {
+            ensure_network_allowed("ibkr_http_client")?;
             Some(
                 Client::builder()
                     .danger_accept_invalid_certs(true)
@@ -509,6 +511,7 @@ impl IbkrPaperAdapter {
         let Some(client) = &self.client else {
             return Ok(None);
         };
+        ensure_network_allowed("ibkr_submit")?;
 
         let side = if order.side == Side::Buy {
             "BUY"
@@ -601,6 +604,7 @@ impl IbkrPaperAdapter {
         if !self.cfg.enabled || self.cfg.dry_run {
             return Ok(());
         }
+        ensure_network_allowed("ibkr_reconcile")?;
 
         let open_ids = self.fetch_open_order_ids()?;
         let mut snapshots: Vec<IbkrTrackedOrder> = Vec::new();
@@ -705,6 +709,7 @@ impl IbkrPaperAdapter {
         let Some(client) = &self.client else {
             return Ok(());
         };
+        ensure_network_allowed("ibkr_cancel")?;
         let Some(remote_id) = &tracked.ibkr_order_id else {
             return Ok(());
         };

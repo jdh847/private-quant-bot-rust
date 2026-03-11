@@ -1,0 +1,55 @@
+# Tutorials (Zero To Results)
+
+All commands are paper-only.
+
+## 1) Demo + Dashboard (Fastest)
+
+```bash
+cargo run -- demo --config config/bot.toml --lang en
+open "$(cat outputs_rust/demo/LATEST_DASHBOARD.txt)"
+```
+
+Expected:
+
+- a new folder under `outputs_rust/demo/run_<timestamp>/`
+- `dashboard.html` with KPI cards + trades/rejections/factors panels
+
+Committed HTML example:
+
+- `docs/examples/dashboard_sample.html`
+
+## 2) Serve Dashboard Over localhost (Avoid file:// fetch issues)
+
+Some browsers block `fetch('./*.csv')` under `file://`.
+
+```bash
+cargo run -- serve --root outputs_rust/demo --bind 127.0.0.1:0 --lang en
+```
+
+Open the printed URL (it redirects `/` to the latest `dashboard.html`).
+
+## 3) Research Leaderboard (Cross-Market)
+
+```bash
+cargo run -- research \
+  --config config/bot.toml \
+  --output-dir outputs_rust/research \
+  --markets US,A,JP \
+  --strategy-plugins layered_multi_factor,momentum_guard \
+  --portfolio-methods risk_parity,hrp \
+  --lang en
+```
+
+Expected:
+
+- `outputs_rust/research/research_leaderboard.csv`
+- `outputs_rust/research/research_leaderboard.md`
+
+## Scripts
+
+Runnable helpers:
+
+- `scripts/tutorial_demo.sh`
+- `scripts/tutorial_research.sh`
+- `scripts/tutorial_optimize.sh`
+- `scripts/tutorial_serve.sh`

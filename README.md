@@ -6,6 +6,10 @@ Docs:
 - English: [README.md](README.md)
 - 中文: [README.zh-CN.md](README.zh-CN.md)
 - 日本語: [README.ja.md](README.ja.md)
+- Data & credibility: `docs/DATA.md`
+- Tutorials: `docs/TUTORIALS.md`
+- Paper-only security model: `docs/SECURITY_PAPER_ONLY.md`
+- Plugin SDK: `docs/PLUGIN_SDK.md`
 
 ## Core guarantees
 

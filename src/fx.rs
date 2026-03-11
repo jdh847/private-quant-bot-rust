@@ -5,6 +5,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 
 use crate::config::FxConfig;
+use crate::safety::ensure_network_allowed;
 
 #[derive(Debug, Deserialize)]
 struct FxResponse {
@@ -30,6 +31,8 @@ pub fn fetch_live_fx_to_base(
         only_base.insert(base, 1.0);
         return Ok(only_base);
     }
+
+    ensure_network_allowed("live_fx")?;
 
     let client = Client::builder()
         .timeout(Duration::from_millis(fx_cfg.timeout_ms))

@@ -4,12 +4,14 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use private_quant_bot::{
     attribution::write_factor_attribution_report,
+    audit::write_audit_snapshot,
     benchmark::{run_benchmark_suite, BenchmarkRequest},
     config::{load_config, BotConfig},
     control_center::{run_control_center, ControlCenterRequest},
     daemon::{run_paper_daemon, PaperDaemonRequest},
     data::CsvDataPortal,
     data_quality::{run_data_quality_check, DataQualityRequest},
+    dataset_manifest::{write_dataset_manifest, DatasetManifestRequest},
     doctor::{run_doctor, DoctorRequest},
     engine::{summarize_result, BacktestStats, QuantBotEngine},
     i18n::{
@@ -77,6 +79,12 @@ enum Command {
         config: String,
         #[arg(long, default_value_t = false)]
         json: bool,
+    },
+    DatasetManifest {
+        #[arg(long, default_value = "config/bot.toml")]
+        config: String,
+        #[arg(long, default_value = "data/DATASET_MANIFEST.json")]
+        output_path: String,
     },
     Optimize {
         #[arg(long, default_value = "config/bot.toml")]
@@ -270,6 +278,10 @@ fn main() -> Result<()> {
             prefer_latest,
         } => serve_command(&root, &bind, prefer_latest, language),
         Command::Doctor { config, json } => doctor_command(&config, json),
+        Command::DatasetManifest {
+            config,
+            output_path,
+        } => dataset_manifest_command(&config, &output_path),
         Command::Optimize {
             config,
             output_dir,
@@ -494,6 +506,19 @@ fn doctor_command(config_path: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
+fn dataset_manifest_command(config_path: &str, output_path: &str) -> Result<()> {
+    let report = write_dataset_manifest(&DatasetManifestRequest {
+        config_path: PathBuf::from(config_path),
+        output_path: PathBuf::from(output_path),
+    })?;
+    println!(
+        "dataset manifest written | files={} output={}",
+        report.files.len(),
+        output_path
+    );
+    Ok(())
+}
+
 fn demo_command(
     config_path: &str,
     output_root: &str,
@@ -527,6 +552,15 @@ fn demo_command(
         msg_open_dashboard_hint(language),
         dashboard_path.display()
     );
+    let audit_path = write_audit_snapshot(
+        &output_dir,
+        "demo",
+        "paper-only demo",
+        Path::new(config_path),
+        &cfg,
+        &stats,
+    )?;
+    println!("audit_snapshot: {}", audit_path.display());
     let registry = append_registry_backtest(BacktestRegistryLog {
         cfg: &cfg,
         command: "demo",
@@ -749,6 +783,15 @@ fn run_command(
         "factor_attribution_summary: {}",
         attribution.summary_path.display()
     );
+    let audit_path = write_audit_snapshot(
+        output_dir,
+        "run",
+        "paper run",
+        Path::new(config_path),
+        &cfg,
+        &stats,
+    )?;
+    println!("audit_snapshot: {}", audit_path.display());
     let registry = append_registry_backtest(BacktestRegistryLog {
         cfg: &cfg,
         command: "run",

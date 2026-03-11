@@ -2,6 +2,13 @@
 
 这是一个面向个人交易者的多市场量化机器人，默认仅支持模拟盘（Paper Trading）。
 
+更多文档：
+
+- 数据与回测可信度：`docs/DATA.md`
+- 教程：`docs/TUTORIALS.md`
+- Paper-only 安全模型：`docs/SECURITY_PAPER_ONLY.md`
+- 插件 SDK：`docs/PLUGIN_SDK.md`
+
 ## 当前能力
 
 - 多因子策略（动量、均值回归、低波动、量能）

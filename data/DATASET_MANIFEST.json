@@ -1,0 +1,73 @@
+{
+  "generated_at_utc": "2026-03-11T12:50:39.106136+00:00",
+  "project_root": ".",
+  "config_path": "config/bot.toml",
+  "files": [
+    {
+      "kind": "industry_map",
+      "market": "A",
+      "path": "data/a_industries.csv",
+      "bytes": 57,
+      "sha256": "dae26e7ce7c9ad2564c850c4a587aff1ca854b632c84efb965d4e32026259dfb",
+      "rows": null,
+      "unique_symbols": null,
+      "first_date": null,
+      "last_date": null
+    },
+    {
+      "kind": "market_data",
+      "market": "A",
+      "path": "data/a_share.csv",
+      "bytes": 1174,
+      "sha256": "3101e01edaa150cd2a9bcecbcd327bdb0a33908632d2b636fe00294609db648d",
+      "rows": 38,
+      "unique_symbols": 2,
+      "first_date": "2025-01-02",
+      "last_date": "2025-01-28"
+    },
+    {
+      "kind": "market_data",
+      "market": "JP",
+      "path": "data/jp_equities.csv",
+      "bytes": 937,
+      "sha256": "46ad99739ad4a152db1fa9f2c0de65a7171b391ced3234f267bab14520d5effc",
+      "rows": 32,
+      "unique_symbols": 2,
+      "first_date": "2025-01-06",
+      "last_date": "2025-01-28"
+    },
+    {
+      "kind": "industry_map",
+      "market": "JP",
+      "path": "data/jp_industries.csv",
+      "bytes": 48,
+      "sha256": "eb8cdaf71719d544f7c85e3731450a76fa9ab5041cd42450b7c2ba1610493f6a",
+      "rows": null,
+      "unique_symbols": null,
+      "first_date": null,
+      "last_date": null
+    },
+    {
+      "kind": "market_data",
+      "market": "US",
+      "path": "data/us_equities.csv",
+      "bytes": 1141,
+      "sha256": "5b0f8cceefdf445874a20815fd35bb382920819dc654fc9d22b425ed06dab5ff",
+      "rows": 42,
+      "unique_symbols": 2,
+      "first_date": "2025-01-02",
+      "last_date": "2025-01-31"
+    },
+    {
+      "kind": "industry_map",
+      "market": "US",
+      "path": "data/us_industries.csv",
+      "bytes": 48,
+      "sha256": "ee10487f19eff181d354362722cfb716261de284ac467c1e2057b3af80b4bd68",
+      "rows": null,
+      "unique_symbols": null,
+      "first_date": null,
+      "last_date": null
+    }
+  ]
+}

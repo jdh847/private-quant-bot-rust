@@ -7,6 +7,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 
+use crate::safety::{ensure_ibkr_paper_allowed, ensure_network_allowed};
 use crate::sdk::is_registered_sdk_plugin;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -268,6 +269,7 @@ pub struct MarketConfig {
     pub min_trade_notional: f64,
     pub currency: String,
     pub fx_to_base: f64,
+    pub industry_file: Option<PathBuf>,
     pub industry_map: HashMap<String, String>,
     pub execution_cost: MarketExecutionCost,
 }
@@ -337,8 +339,9 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<BotConfig> {
             min_fee: market.min_fee.unwrap_or(raw.execution.min_fee),
         };
         validate_market_execution(&name, execution_cost)?;
-        let industry_map = if let Some(industry_file) = &market.industry_file {
-            load_industry_map(&project_root.join(industry_file))
+        let industry_file_path = market.industry_file.as_ref().map(|p| project_root.join(p));
+        let industry_map = if let Some(industry_file) = &industry_file_path {
+            load_industry_map(industry_file)
                 .with_context(|| format!("failed loading industry file for market {name}"))?
         } else {
             HashMap::new()
@@ -354,6 +357,7 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<BotConfig> {
                 min_trade_notional: market.min_trade_notional,
                 currency,
                 fx_to_base,
+                industry_file: industry_file_path,
                 industry_map,
                 execution_cost,
             },
@@ -585,9 +589,17 @@ fn validate_broker(broker: &BrokerConfig, ibkr: &IbkrConfig) -> Result<()> {
             "broker.paper_only must stay true (paper-only repository)"
         ));
     }
+
+    if ibkr.enabled && broker.mode.as_str() != "ibkr_paper" {
+        return Err(anyhow!(
+            "ibkr.enabled=true requires broker.mode=ibkr_paper (paper adapter)"
+        ));
+    }
+
     match broker.mode.as_str() {
         "sim" => Ok(()),
         "ibkr_paper" => {
+            ensure_ibkr_paper_allowed()?;
             if ibkr.enabled && !ibkr.allow_remote_paper {
                 let safe_hosts = ["127.0.0.1", "localhost"];
                 if !safe_hosts
@@ -598,6 +610,10 @@ fn validate_broker(broker: &BrokerConfig, ibkr: &IbkrConfig) -> Result<()> {
                         "ibkr gateway_url must target localhost unless allow_remote_paper=true"
                     ));
                 }
+            }
+            if ibkr.enabled && !ibkr.dry_run {
+                // Any real network call requires explicit opt-in, even though it's still paper.
+                ensure_network_allowed("ibkr_paper")?;
             }
             Ok(())
         }

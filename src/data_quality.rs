@@ -40,6 +40,8 @@ struct CsvBar {
     date: String,
     symbol: String,
     close: f64,
+    #[serde(default)]
+    adj_close: Option<f64>,
     volume: f64,
 }
 
@@ -104,7 +106,8 @@ fn inspect_market_csv(
             duplicate_rows += 1;
         }
 
-        if !record.close.is_finite() || record.close <= 0.0 {
+        let close = record.adj_close.unwrap_or(record.close);
+        if !close.is_finite() || close <= 0.0 {
             invalid_close_rows += 1;
         }
         if !record.volume.is_finite() || record.volume < 0.0 {
@@ -122,14 +125,14 @@ fn inspect_market_csv(
         }
         if let Some(prev_close) = last_close.get(&record.symbol) {
             if prev_close.abs() > 1e-9 {
-                let ret = record.close / *prev_close - 1.0;
+                let ret = close / *prev_close - 1.0;
                 if ret.abs() > outlier_threshold {
                     return_outliers += 1;
                 }
             }
         }
         last_date.insert(record.symbol.clone(), date);
-        last_close.insert(record.symbol, record.close);
+        last_close.insert(record.symbol, close);
     }
 
     let status = if duplicate_rows > 0

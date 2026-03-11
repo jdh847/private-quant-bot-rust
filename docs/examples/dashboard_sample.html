@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Private Quant Bot Dashboard</title>
+<style>
+:root {
+  --panel: rgba(255,255,255,0.92);
+  --panel2: rgba(255,255,255,0.80);
+  --ink: #0b1220;
+  --muted: rgba(11,18,32,0.60);
+  --line: rgba(11,18,32,0.12);
+  --accent: #0f766e;
+  --accent2: #f59e0b;
+  --danger: #b91c1c;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Avenir Next", "Avenir", "Helvetica Neue", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 600px at 12% 10%, rgba(245, 158, 11, 0.20), transparent 55%),
+    radial-gradient(900px 520px at 75% 12%, rgba(15, 118, 110, 0.25), transparent 60%),
+    radial-gradient(900px 600px at 70% 85%, rgba(16, 185, 129, 0.18), transparent 60%),
+    linear-gradient(180deg, #f7fafc 0%, #ecfeff 60%, #f0fdf4 100%);
+}
+.wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px 24px; }
+.head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 14px; }
+.title { font-size: 28px; font-weight: 800; letter-spacing: 0.2px; }
+.sub { color: var(--muted); font-size: 14px; }
+.head-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.lang-switch { border: 1px solid rgba(15,23,42,0.12); background: rgba(255,255,255,0.95); border-radius: 10px; padding: 6px 10px; font-size: 13px; }
+.chip { border: 1px solid rgba(15,23,42,0.12); background: rgba(255,255,255,0.75); border-radius: 999px; padding: 6px 10px; font-size: 12px; }
+.grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; }
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  animation: rise 380ms ease both;
+}
+.panel[data-delay="1"] { animation-delay: 40ms; }
+.panel[data-delay="2"] { animation-delay: 80ms; }
+.panel[data-delay="3"] { animation-delay: 120ms; }
+.panel[data-delay="4"] { animation-delay: 160ms; }
+.panel[data-delay="5"] { animation-delay: 200ms; }
+.panel h3 { margin: 0 0 12px 0; font-size: 16px; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.select { border: 1px solid rgba(15,23,42,0.12); background: rgba(255,255,255,0.90); border-radius: 10px; padding: 6px 10px; font-size: 13px; }
+#chartWrap { position: relative; }
+#chart { width: 100%; height: 360px; border-radius: 12px; background: linear-gradient(180deg, rgba(236,254,255,0.9) 0%, rgba(255,255,255,0.95) 70%); border: 1px solid rgba(15,23,42,0.10); }
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(255,255,255,0.96);
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  font-size: 12px;
+  display: none;
+}
+.summary { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; background: rgba(255,255,255,0.65); padding: 10px; border-radius: 10px; border: 1px solid rgba(15, 23, 42, 0.10); }
+.kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.kpi { background: var(--panel2); border: 1px solid rgba(15, 23, 42, 0.10); border-radius: 14px; padding: 12px; }
+.kpi .k { color: var(--muted); font-size: 12px; }
+.kpi .v { font-size: 18px; font-weight: 800; margin-top: 6px; letter-spacing: 0.2px; }
+.kpi .v.negative { color: var(--danger); }
+.kpi .v.positive { color: var(--accent); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px; border-bottom: 1px solid rgba(15,23,42,0.06); }
+th { color: var(--muted); font-weight: 600; }
+.tag-buy { color: #065f46; background: #d1fae5; padding: 2px 6px; border-radius: 999px; font-weight: 700; }
+.tag-sell { color: #7f1d1d; background: #fee2e2; padding: 2px 6px; border-radius: 999px; font-weight: 700; }
+.pill { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 6px 10px; border: 1px solid rgba(15,23,42,0.12); background: rgba(255,255,255,0.75); font-size: 12px; }
+.dot { width: 8px; height: 8px; border-radius: 999px; background: var(--accent2); }
+.dot.ok { background: var(--accent); }
+.filters { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.filters input { border: 1px solid rgba(15,23,42,0.12); background: rgba(255,255,255,0.90); border-radius: 10px; padding: 8px 10px; font-size: 13px; }
+.factor-bars { display: grid; gap: 8px; }
+.bar-row { display: grid; grid-template-columns: 140px 1fr 64px; gap: 10px; align-items: center; }
+.bar-track { height: 10px; border-radius: 999px; background: rgba(15,23,42,0.08); overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, rgba(15,118,110,0.95), rgba(245,158,11,0.92)); }
+@keyframes rise { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@media (max-width: 960px) {
+  .grid { grid-template-columns: 1fr; }
+  #chart { height: 280px; }
+  .filters { grid-template-columns: 1fr; }
+  .bar-row { grid-template-columns: 120px 1fr 56px; }
+}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <div>
+        <div class="title" id="title">Private Quant Bot</div>
+        <div class="sub" id="subtitle">Paper Trading Dashboard (Rust)</div>
+      </div>
+      <div class="head-right">
+        <select id="lang-switch" class="lang-switch">
+          <option value="en">English</option>
+          <option value="zh-CN">中文</option>
+          <option value="ja">日本語</option>
+        </select>
+        <div class="sub" id="generated-from">Generated from local outputs</div>
+        <div class="pill" id="live-pill"><span class="dot" id="live-dot"></span><span id="live-status">live refresh: init</span></div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <section class="panel" data-delay="1">
+        <div class="toolbar">
+          <h3 id="equity-curve" style="margin:0;">Equity Curve</h3>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <span class="sub" id="series-label">Series</span>
+            <select id="series-select" class="select">
+              <option value="equity">Equity</option>
+              <option value="cash">Cash</option>
+              <option value="gross_exposure">Gross</option>
+              <option value="net_exposure">Net</option>
+            </select>
+          </div>
+        </div>
+        <div id="chartWrap">
+          <canvas id="chart"></canvas>
+          <div class="tooltip" id="tooltip"></div>
+        </div>
+      </section>
+
+      <section class="panel" data-delay="2">
+        <div class="toolbar">
+          <h3 id="overview" style="margin:0;">Overview</h3>
+          <span class="chip" id="meta-chip"></span>
+        </div>
+        <div class="kpis" id="kpis"></div>
+        <div style="margin-top: 12px;">
+          <h3 id="run-summary" style="margin:0 0 10px 0;">Run Summary</h3>
+          <div class="summary" id="summary-block">start_equity=1000000.00
+end_equity=1011913.55
+pnl=11913.55
+pnl_ratio=1.1914%
+max_drawdown=0.1871%
+trades=23
+rejections=7
+cagr=15.2712%
+sharpe=7.6714
+sortino=13.8849
+calmar=81.6000
+daily_win_rate=47.6190%
+profit_factor=3.5348
+</div>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel" data-delay="3" style="margin-top: 16px;">
+      <div class="toolbar">
+        <h3 id="recent-trades" style="margin:0;">Recent Trades</h3>
+        <span class="chip" id="trade-stats"></span>
+      </div>
+      <div class="filters">
+        <select id="filter-market" class="select"></select>
+        <select id="filter-side" class="select"></select>
+        <input id="filter-symbol" type="text" placeholder="symbol..." />
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th id="th-date">Date</th><th id="th-market">Market</th><th id="th-symbol">Symbol</th><th id="th-side">Side</th><th id="th-qty">Qty</th><th id="th-price">Price</th><th id="th-fees">Fees</th>
+          </tr>
+        </thead>
+        <tbody id="trades"></tbody>
+      </table>
+    </section>
+
+    <div class="grid" style="margin-top: 16px;">
+      <section class="panel" data-delay="4">
+        <div class="toolbar">
+          <h3 id="rejections-title" style="margin:0;">Rejections</h3>
+          <span class="chip" id="rejection-stats"></span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th id="rej-th-date">Date</th><th id="rej-th-market">Market</th><th id="rej-th-symbol">Symbol</th><th id="rej-th-side">Side</th><th id="rej-th-qty">Qty</th><th id="rej-th-reason">Reason</th>
+            </tr>
+          </thead>
+          <tbody id="rejections"></tbody>
+        </table>
+      </section>
+
+      <section class="panel" data-delay="5">
+        <div class="toolbar">
+          <h3 id="factors-title" style="margin:0;">Factors</h3>
+          <span class="chip" id="factor-stats"></span>
+        </div>
+        <div class="factor-bars" id="factor-bars"></div>
+      </section>
+    </div>
+  </div>
+
+<script>
+let equityRows = [{"date":"2025-01-02","equity":1000000.0,"cash":1000000.0,"gross_exposure":-0.0,"net_exposure":-0.0},{"date":"2025-01-03","equity":1000000.0,"cash":1000000.0,"gross_exposure":-0.0,"net_exposure":-0.0},{"date":"2025-01-06","equity":1000000.0,"cash":1000000.0,"gross_exposure":-0.0,"net_exposure":-0.0},{"date":"2025-01-07","equity":1000000.0,"cash":1000000.0,"gross_exposure":-0.0,"net_exposure":-0.0},{"date":"2025-01-08","equity":1000000.0,"cash":1000000.0,"gross_exposure":-0.0,"net_exposure":-0.0},{"date":"2025-01-09","equity":1000000.0,"cash":1000000.0,"gross_exposure":-0.0,"net_exposure":-0.0},{"date":"2025-01-10","equity":999951.0151,"cash":825015.0151,"gross_exposure":174936.0,"net_exposure":174936.0},{"date":"2025-01-13","equity":1001727.0151,"cash":825015.0151,"gross_exposure":176712.0,"net_exposure":176712.0},{"date":"2025-01-14","equity":1003503.0151,"cash":825015.0151,"gross_exposure":178488.0,"net_exposure":178488.0},{"date":"2025-01-15","equity":1004391.0151,"cash":825015.0151,"gross_exposure":179376.0,"net_exposure":179376.0},{"date":"2025-01-16","equity":1002511.3236,"cash":809785.3236,"gross_exposure":192726.0,"net_exposure":192726.0},{"date":"2025-01-17","equity":1003896.8303,"cash":810640.8303,"gross_exposure":193256.0,"net_exposure":193256.0},{"date":"2025-01-20","equity":1003810.6035,"cash":695604.6035,"gross_exposure":308206.0,"net_exposure":308206.0},{"date":"2025-01-21","equity":1005987.6819,"cash":810827.6819,"gross_exposure":195160.0,"net_exposure":195160.0},{"date":"2025-01-22","equity":1004840.8226,"cash":696444.8226,"gross_exposure":308396.0,"net_exposure":308396.0},{"date":"2025-01-23","equity":1006884.0804,"cash":581238.0804,"gross_exposure":425646.0,"net_exposure":425646.0},{"date":"2025-01-24","equity":1009199.7268,"cash":814975.7268,"gross_exposure":194224.0,"net_exposure":194224.0},{"date":"2025-01-27","equity":1008136.9974,"cash":699268.9974,"gross_exposure":308868.0,"net_exposure":308868.0},{"date":"2025-01-28","equity":1009304.113,"cash":699711.113,"gross_exposure":309593.0,"net_exposure":309593.0},{"date":"2025-01-29","equity":1011052.7719,"cash":701135.7719,"gross_exposure":309917.0,"net_exposure":309917.0},{"date":"2025-01-30","equity":1010567.7719,"cash":701135.7719,"gross_exposure":309432.0,"net_exposure":309432.0},{"date":"2025-01-31","equity":1011913.552,"cash":701865.552,"gross_exposure":310048.0,"net_exposure":310048.0}];
+let labels = equityRows.map(r => r.date || '');
+let points = equityRows.map(r => Number(r.equity || 0));
+let trades = [{"date":"2025-01-10","market":"US","symbol":"AAPL","side":"BUY","qty":888,"price":197.0394,"fees":13.9977},{"date":"2025-01-16","market":"US","symbol":"AAPL","side":"SELL","qty":888,"price":199.96,"fees":14.2052},{"date":"2025-01-16","market":"US","symbol":"MSFT","side":"BUY","qty":498,"price":387.0774,"fees":15.4212},{"date":"2025-01-17","market":"US","symbol":"AAPL","side":"BUY","qty":952,"price":203.0406,"fees":15.4636},{"date":"2025-01-17","market":"US","symbol":"MSFT","side":"SELL","qty":498,"price":389.922,"fees":15.5345},{"date":"2025-01-20","market":"A","symbol":"000001","side":"BUY","qty":9500,"price":12.106,"fees":28.7519},{"date":"2025-01-21","market":"A","symbol":"000001","side":"SELL","qty":9500,"price":12.1439,"fees":144.2091},{"date":"2025-01-22","market":"A","symbol":"000001","side":"BUY","qty":9500,"price":12.1261,"fees":28.7994},{"date":"2025-01-22","market":"US","symbol":"AAPL","side":"SELL","qty":952,"price":203.9592,"fees":15.5335},{"date":"2025-01-22","market":"US","symbol":"MSFT","side":"BUY","qty":493,"price":392.0784,"fees":15.4636},{"date":"2025-01-23","market":"A","symbol":"000001","side":"BUY","qty":9500,"price":12.2061,"fees":28.9895},{"date":"2025-01-23","market":"US","symbol":"AAPL","side":"BUY","qty":941,"price":206.0412,"fees":15.5108},{"date":"2025-01-23","market":"US","symbol":"MSFT","side":"SELL","qty":493,"price":394.921,"fees":15.5757},{"date":"2025-01-24","market":"A","symbol":"000001","side":"SELL","qty":19000,"price":12.2439,"fees":290.792},{"date":"2025-01-24","market":"US","symbol":"AAPL","side":"SELL","qty":941,"price":207.9584,"fees":15.6551},{"date":"2025-01-24","market":"US","symbol":"MSFT","side":"BUY","qty":488,"price":398.0796,"fees":15.541},{"date":"2025-01-27","market":"A","symbol":"000001","side":"BUY","qty":9400,"price":12.3062,"fees":28.9195},{"date":"2025-01-28","market":"US","symbol":"AAPL","side":"BUY","qty":929,"price":209.0418,"fees":15.536},{"date":"2025-01-28","market":"US","symbol":"MSFT","side":"SELL","qty":488,"price":398.9202,"fees":15.5738},{"date":"2025-01-29","market":"US","symbol":"AAPL","side":"SELL","qty":929,"price":210.9578,"fees":15.6784},{"date":"2025-01-29","market":"US","symbol":"MSFT","side":"BUY","qty":485,"price":401.0802,"fees":15.5619},{"date":"2025-01-31","market":"US","symbol":"AAPL","side":"BUY","qty":918,"price":212.0424,"fees":15.5724},{"date":"2025-01-31","market":"US","symbol":"MSFT","side":"SELL","qty":485,"price":402.9194,"fees":15.6333}];
+let rejections = [{"date":"2025-01-13","market":"US","symbol":"AAPL","side":"BUY","qty":880,"reason":"symbol weight breach"},{"date":"2025-01-14","market":"US","symbol":"AAPL","side":"BUY","qty":961,"reason":"symbol weight breach"},{"date":"2025-01-15","market":"US","symbol":"AAPL","side":"BUY","qty":957,"reason":"symbol weight breach"},{"date":"2025-01-21","market":"US","symbol":"AAPL","side":"BUY","qty":944,"reason":"symbol weight breach"},{"date":"2025-01-27","market":"US","symbol":"MSFT","side":"BUY","qty":490,"reason":"symbol weight breach"},{"date":"2025-01-28","market":"A","symbol":"000001","side":"BUY","qty":9400,"reason":"market holiday/session closed"},{"date":"2025-01-30","market":"US","symbol":"MSFT","side":"BUY","qty":486,"reason":"symbol weight breach"}];
+let summaryKv = {"cagr":"15.2712%","calmar":"81.6000","daily_win_rate":"47.6190%","end_equity":"1011913.55","max_drawdown":"0.1871%","pnl":"11913.55","pnl_ratio":"1.1914%","profit_factor":"3.5348","rejections":"7","sharpe":"7.6714","sortino":"13.8849","start_equity":"1000000.00","trades":"23"};
+let factorKv = {"avg_composite_alpha":"-0.000000","avg_factor_low_vol":"0.250000","avg_factor_mean_reversion":"0.200000","avg_factor_momentum":"0.450000","avg_factor_volume":"0.100000","avg_selected_symbols":"2.00","rows":"38","share_factor_low_vol":"25.00%","share_factor_mean_reversion":"20.00%","share_factor_momentum":"45.00%","share_factor_volume":"10.00%"};
+const i18n = {"en":{"title":"Private Quant Bot","subtitle":"Paper Trading Dashboard (Rust)","generated_from":"Generated from local outputs","overview":"Overview","series":"Series","equity":"Equity","cash":"Cash","gross_exposure":"Gross Exposure","net_exposure":"Net Exposure","equity_curve":"Equity Curve","run_summary":"Run Summary","kpi_start_equity":"Start Equity","kpi_end_equity":"End Equity","kpi_pnl":"PnL","kpi_pnl_ratio":"PnL %","kpi_max_drawdown":"Max DD","kpi_cagr":"CAGR","kpi_sharpe":"Sharpe","kpi_trades":"Trades","kpi_rejections":"Rejections","recent_trades":"Recent Trades","filters":"Filters","all":"All","search":"Search","date":"Date","market":"Market","symbol":"Symbol","side":"Side","qty":"Qty","price":"Price","fees":"Fees","rejections":"Rejections","reason":"Reason","factors":"Factors","avg_selected_symbols":"Avg Selected","start":"Start","end":"End","buy":"BUY","sell":"SELL","live_on":"Live refresh: on","live_fallback":"Live refresh: fallback","live_init":"Live refresh: init"},"zh-CN":{"title":"私人量化机器人","subtitle":"模拟盘仪表盘（Rust）","generated_from":"由本地输出自动生成","overview":"总览","series":"序列","equity":"权益","cash":"现金","gross_exposure":"总敞口","net_exposure":"净敞口","equity_curve":"权益曲线","run_summary":"运行摘要","kpi_start_equity":"起始权益","kpi_end_equity":"结束权益","kpi_pnl":"盈亏","kpi_pnl_ratio":"收益率","kpi_max_drawdown":"最大回撤","kpi_cagr":"CAGR","kpi_sharpe":"夏普","kpi_trades":"成交数","kpi_rejections":"拒单数","recent_trades":"最近成交","filters":"筛选","all":"全部","search":"搜索","date":"日期","market":"市场","symbol":"代码","side":"方向","qty":"数量","price":"价格","fees":"费用","rejections":"拒单","reason":"原因","factors":"因子","avg_selected_symbols":"平均入选数","start":"起始","end":"结束","buy":"买入","sell":"卖出","live_on":"实时刷新: 开","live_fallback":"实时刷新: 回退","live_init":"实时刷新: 初始化"},"ja":{"title":"プライベート量的ボット","subtitle":"ペーパー取引ダッシュボード（Rust）","generated_from":"ローカル出力から生成","overview":"概要","series":"系列","equity":"エクイティ","cash":"現金","gross_exposure":"総エクスポージャー","net_exposure":"純エクスポージャー","equity_curve":"エクイティ曲線","run_summary":"実行サマリー","kpi_start_equity":"開始エクイティ","kpi_end_equity":"終了エクイティ","kpi_pnl":"損益","kpi_pnl_ratio":"リターン","kpi_max_drawdown":"最大DD","kpi_cagr":"CAGR","kpi_sharpe":"シャープ","kpi_trades":"約定数","kpi_rejections":"拒否数","recent_trades":"最近の約定","filters":"フィルター","all":"すべて","search":"検索","date":"日付","market":"市場","symbol":"銘柄","side":"売買","qty":"数量","price":"価格","fees":"手数料","rejections":"拒否","reason":"理由","factors":"ファクター","avg_selected_symbols":"平均採用数","start":"開始","end":"終了","buy":"買い","sell":"売り","live_on":"ライブ更新: ON","live_fallback":"ライブ更新: fallback","live_init":"ライブ更新: init"}};
+const defaultLang = "en";
+
+const c = document.getElementById('chart');
+const ctx = c.getContext('2d');
+const langSwitch = document.getElementById('lang-switch');
+const summaryBlock = document.getElementById('summary-block');
+const liveStatus = document.getElementById('live-status');
+const liveDot = document.getElementById('live-dot');
+const tooltip = document.getElementById('tooltip');
+const kpisEl = document.getElementById('kpis');
+const seriesSelect = document.getElementById('series-select');
+const metaChip = document.getElementById('meta-chip');
+const tradeStats = document.getElementById('trade-stats');
+const rejectionStats = document.getElementById('rejection-stats');
+const factorStats = document.getElementById('factor-stats');
+const marketSel = document.getElementById('filter-market');
+const sideSel = document.getElementById('filter-side');
+const symbolInput = document.getElementById('filter-symbol');
+
+function getText(lang) {
+  return i18n[lang] || i18n['en'];
+}
+
+function parseKv(text) {
+  const out = {};
+  (text || '').split(/\\r?\\n/).forEach(line => {
+    const m = line.match(/^\\s*([^=]+)=(.*)\\s*$/);
+    if (!m) return;
+    out[m[1].trim()] = m[2].trim();
+  });
+  return out;
+}
+
+function parseNum(s) {
+  if (s == null) return null;
+  const raw = String(s).trim();
+  if (!raw) return null;
+  const pct = raw.endsWith('%');
+  const n = Number(raw.replace(/%/g, ''));
+  if (Number.isNaN(n)) return null;
+  return pct ? n / 100.0 : n;
+}
+
+function fmtMoney(n) {
+  if (n == null || !Number.isFinite(n)) return '-';
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  if (abs >= 1e9) return sign + (abs / 1e9).toFixed(2) + 'B';
+  if (abs >= 1e6) return sign + (abs / 1e6).toFixed(2) + 'M';
+  if (abs >= 1e3) return sign + (abs / 1e3).toFixed(2) + 'K';
+  return sign + abs.toFixed(2);
+}
+
+function fmtPct(ratio) {
+  if (ratio == null || !Number.isFinite(ratio)) return '-';
+  return (ratio * 100).toFixed(2) + '%';
+}
+
+function seriesLabel(key, text) {
+  if (key === 'cash') return text.cash;
+  if (key === 'gross_exposure') return text.gross_exposure;
+  if (key === 'net_exposure') return text.net_exposure;
+  return text.equity;
+}
+
+function extractSeries(key) {
+  return equityRows.map(r => Number(r[key] || 0));
+}
+
+function renderChart(text) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth;
+  const h = c.clientHeight;
+  c.width = Math.floor(w * dpr);
+  c.height = Math.floor(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  if (points.length <= 1) {
+    return;
+  }
+
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const span = Math.max(max - min, 1);
+  const pad = 24;
+  const stepX = (w - pad * 2) / (points.length - 1);
+  const yFor = (v) => h - pad - ((v - min) / span) * (h - pad * 2);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.10)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i <= 4; i++) {
+    const y = pad + (i * (h - pad * 2) / 4);
+    ctx.moveTo(pad, y);
+    ctx.lineTo(w - pad, y);
+  }
+  ctx.stroke();
+
+  // Line
+  ctx.strokeStyle = '#0f766e';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  points.forEach((v, i) => {
+    const x = pad + i * stepX;
+    const y = yFor(v);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Fill
+  ctx.fillStyle = 'rgba(15,118,110,0.12)';
+  ctx.lineTo(w - pad, h - pad);
+  ctx.lineTo(pad, h - pad);
+  ctx.closePath();
+  ctx.fill();
+
+  // Labels
+  ctx.fillStyle = '#334155';
+  ctx.font = '12px Avenir Next, sans-serif';
+  const first = points[0];
+  const last = points[points.length - 1];
+  ctx.fillText(text.start + ': ' + fmtMoney(first), pad, 16);
+  ctx.fillText(text.end + ': ' + fmtMoney(last), w - 180, 16);
+
+  // Hover crosshair
+  if (window.__hoverIndex != null) {
+    const i = window.__hoverIndex;
+    const x = pad + i * stepX;
+    const y = yFor(points[i]);
+    ctx.strokeStyle = 'rgba(245, 158, 11, 0.9)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, pad);
+    ctx.lineTo(x, h - pad);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(245, 158, 11, 1.0)';
+    ctx.beginPath();
+    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function renderTrades(text) {
+  const tbody = document.getElementById('trades');
+  tbody.innerHTML = '';
+  const fMarket = marketSel.value;
+  const fSide = sideSel.value;
+  const q = (symbolInput.value || '').trim().toUpperCase();
+  const filtered = trades.filter(t => {
+    if (fMarket && fMarket !== '__all__' && t.market !== fMarket) return false;
+    if (fSide && fSide !== '__all__' && t.side !== fSide) return false;
+    if (q && !String(t.symbol || '').toUpperCase().includes(q)) return false;
+    return true;
+  });
+
+  filtered.slice(-60).reverse().forEach(t => {
+    const tr = document.createElement('tr');
+    const sideTag = t.side === 'BUY'
+      ? '<span class="tag-buy">' + text.buy + '</span>'
+      : '<span class="tag-sell">' + text.sell + '</span>';
+    const fees = Number(t.fees || 0);
+    tr.innerHTML = `<td>${t.date}</td><td>${t.market}</td><td>${t.symbol}</td><td>${sideTag}</td><td>${t.qty}</td><td>${Number(t.price||0).toFixed(4)}</td><td>${fees.toFixed(2)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderRejections() {
+  const tbody = document.getElementById('rejections');
+  tbody.innerHTML = '';
+  if (!rejections || rejections.length === 0) {
+    rejectionStats.textContent = '0';
+    return;
+  }
+  rejectionStats.textContent = String(rejections.length);
+  rejections.slice(-60).reverse().forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.date}</td><td>${r.market}</td><td>${r.symbol}</td><td>${r.side}</td><td>${r.qty}</td><td>${r.reason}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function factorBarValue(key) {
+  const raw = (factorKv || {})[key];
+  if (!raw) return null;
+  const n = parseNum(raw);
+  if (n == null) return null;
+  return n;
+}
+
+function renderFactors(text) {
+  const root = document.getElementById('factor-bars');
+  root.innerHTML = '';
+  const rows = [
+    { key: 'share_factor_momentum', label: 'momentum' },
+    { key: 'share_factor_mean_reversion', label: 'mean reversion' },
+    { key: 'share_factor_low_vol', label: 'low-vol' },
+    { key: 'share_factor_volume', label: 'volume' },
+  ];
+  const any = rows.some(r => factorBarValue(r.key) != null);
+  if (!any) {
+    factorStats.textContent = '-';
+    root.innerHTML = `<div class="sub">factor_attribution_summary.txt</div>`;
+    return;
+  }
+  const avgSel = (factorKv || {})['avg_selected_symbols'];
+  factorStats.textContent = avgSel ? `${text.avg_selected_symbols}: ${Number(avgSel).toFixed(2)}` : '';
+  rows.forEach(r => {
+    const v = factorBarValue(r.key);
+    if (v == null) return;
+    const pct = (v * 100).toFixed(1) + '%';
+    const el = document.createElement('div');
+    el.className = 'bar-row';
+    el.innerHTML = `<div class="sub">${r.label}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(0, Math.min(100, v*100))}%"></div></div><div style="text-align:right; font-variant-numeric: tabular-nums;">${pct}</div>`;
+    root.appendChild(el);
+  });
+}
+
+function renderKpis(text) {
+  const kv = summaryKv || {};
+  const startEq = parseNum(kv.start_equity);
+  const endEq = parseNum(kv.end_equity);
+  const pnl = parseNum(kv.pnl);
+  const pnlRatio = parseNum(kv.pnl_ratio);
+  const dd = parseNum(kv.max_drawdown);
+  const cagr = parseNum(kv.cagr);
+  const sharpe = parseNum(kv.sharpe);
+  const tradesN = parseNum(kv.trades);
+  const rejN = parseNum(kv.rejections);
+
+  const items = [
+    { k: text.kpi_start_equity, v: fmtMoney(startEq), cls: '' },
+    { k: text.kpi_end_equity, v: fmtMoney(endEq), cls: '' },
+    { k: text.kpi_pnl, v: fmtMoney(pnl), cls: pnl < 0 ? 'negative' : 'positive' },
+    { k: text.kpi_pnl_ratio, v: fmtPct(pnlRatio), cls: pnlRatio < 0 ? 'negative' : 'positive' },
+    { k: text.kpi_max_drawdown, v: fmtPct(dd), cls: 'negative' },
+    { k: text.kpi_cagr, v: fmtPct(cagr), cls: cagr < 0 ? 'negative' : 'positive' },
+    { k: text.kpi_sharpe, v: sharpe == null ? '-' : sharpe.toFixed(2), cls: '' },
+    { k: text.kpi_trades, v: tradesN == null ? '-' : String(Math.round(tradesN)), cls: '' },
+    { k: text.kpi_rejections, v: rejN == null ? '-' : String(Math.round(rejN)), cls: '' },
+  ];
+  kpisEl.innerHTML = '';
+  items.forEach(it => {
+    const el = document.createElement('div');
+    el.className = 'kpi';
+    el.innerHTML = `<div class="k">${it.k}</div><div class="v ${it.cls}">${it.v}</div>`;
+    kpisEl.appendChild(el);
+  });
+
+  const markets = [...new Set(trades.map(t => t.market).filter(Boolean))].sort();
+  const fees = trades.reduce((a, t) => a + Number(t.fees || 0), 0);
+  tradeStats.textContent = `${trades.length} trades | fees=${fees.toFixed(2)} | mkts=${markets.join(',')}`;
+  metaChip.textContent = `${labels.length} days`;
+}
+
+function setupFilters(text) {
+  const prevMarket = marketSel.value || '__all__';
+  const prevSide = sideSel.value || '__all__';
+  const mkts = [...new Set(trades.map(t => t.market).filter(Boolean))].sort();
+  marketSel.innerHTML = '';
+  const optAll = document.createElement('option');
+  optAll.value = '__all__';
+  optAll.textContent = text.all;
+  marketSel.appendChild(optAll);
+  mkts.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    marketSel.appendChild(opt);
+  });
+  marketSel.value = mkts.includes(prevMarket) ? prevMarket : '__all__';
+
+  sideSel.innerHTML = '';
+  const sAll = document.createElement('option');
+  sAll.value = '__all__';
+  sAll.textContent = text.all;
+  sideSel.appendChild(sAll);
+  ['BUY','SELL'].forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s;
+    opt.textContent = s;
+    sideSel.appendChild(opt);
+  });
+  sideSel.value = (prevSide === 'BUY' || prevSide === 'SELL') ? prevSide : '__all__';
+  symbolInput.placeholder = text.search + ' ' + text.symbol;
+
+  const optEquity = seriesSelect.querySelector('option[value="equity"]');
+  const optCash = seriesSelect.querySelector('option[value="cash"]');
+  const optGross = seriesSelect.querySelector('option[value="gross_exposure"]');
+  const optNet = seriesSelect.querySelector('option[value="net_exposure"]');
+  if (optEquity) optEquity.textContent = text.equity;
+  if (optCash) optCash.textContent = text.cash;
+  if (optGross) optGross.textContent = text.gross_exposure;
+  if (optNet) optNet.textContent = text.net_exposure;
+}
+
+function updateTooltip(i, x, y, text) {
+  if (i == null) {
+    tooltip.style.display = 'none';
+    return;
+  }
+  const date = labels[i] || '';
+  const v = points[i];
+  tooltip.style.display = 'block';
+  tooltip.innerHTML = `<div style="font-weight:800; margin-bottom:6px;">${date}</div><div class="sub">${seriesLabel(seriesSelect.value, text)}: <span style="font-weight:800; color: var(--ink);">${fmtMoney(v)}</span></div>`;
+  const pad = 12;
+  tooltip.style.left = Math.min(c.clientWidth - 10, Math.max(10, x + pad)) + 'px';
+  tooltip.style.top = Math.max(10, y + pad) + 'px';
+}
+
+function attachChartHover() {
+  const pad = 24;
+  const onMove = (ev) => {
+    const rect = c.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const w = c.clientWidth;
+    if (points.length <= 1) return;
+    const stepX = (w - pad * 2) / (points.length - 1);
+    const i = Math.max(0, Math.min(points.length - 1, Math.round((x - pad) / stepX)));
+    window.__hoverIndex = i;
+    updateTooltip(i, x, y, getText(langSwitch.value));
+    renderChart(getText(langSwitch.value));
+  };
+  const onLeave = () => {
+    window.__hoverIndex = null;
+    updateTooltip(null, 0, 0, getText(langSwitch.value));
+    renderChart(getText(langSwitch.value));
+  };
+  c.addEventListener('mousemove', onMove);
+  c.addEventListener('mouseleave', onLeave);
+  c.addEventListener('touchstart', (e) => {
+    if (!e.touches || e.touches.length === 0) return;
+    onMove(e.touches[0]);
+  }, { passive: true });
+  c.addEventListener('touchmove', (e) => {
+    if (!e.touches || e.touches.length === 0) return;
+    onMove(e.touches[0]);
+  }, { passive: true });
+  c.addEventListener('touchend', onLeave, { passive: true });
+}
+
+function applyLanguage(lang) {
+  const text = getText(lang);
+  document.documentElement.lang = lang;
+  document.title = text.title + ' | ' + text.subtitle;
+  document.getElementById('title').textContent = text.title;
+  document.getElementById('subtitle').textContent = text.subtitle;
+  document.getElementById('generated-from').textContent = text.generated_from;
+  document.getElementById('overview').textContent = text.overview;
+  document.getElementById('series-label').textContent = text.series;
+  document.getElementById('equity-curve').textContent = text.equity_curve;
+  document.getElementById('run-summary').textContent = text.run_summary;
+  document.getElementById('recent-trades').textContent = text.recent_trades;
+  document.getElementById('th-date').textContent = text.date;
+  document.getElementById('th-market').textContent = text.market;
+  document.getElementById('th-symbol').textContent = text.symbol;
+  document.getElementById('th-side').textContent = text.side;
+  document.getElementById('th-qty').textContent = text.qty;
+  document.getElementById('th-price').textContent = text.price;
+  document.getElementById('th-fees').textContent = text.fees;
+
+  document.getElementById('rejections-title').textContent = text.rejections;
+  document.getElementById('rej-th-date').textContent = text.date;
+  document.getElementById('rej-th-market').textContent = text.market;
+  document.getElementById('rej-th-symbol').textContent = text.symbol;
+  document.getElementById('rej-th-side').textContent = text.side;
+  document.getElementById('rej-th-qty').textContent = text.qty;
+  document.getElementById('rej-th-reason').textContent = text.reason;
+
+  document.getElementById('factors-title').textContent = text.factors;
+
+  setupFilters(text);
+  renderKpis(text);
+  renderChart(text);
+  renderTrades(text);
+  renderRejections();
+  renderFactors(text);
+}
+
+function parseCsv(text) {
+  const lines = text.trim().split(/\\r?\\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',');
+  return lines.slice(1).map((line) => {
+    const cols = line.split(',');
+    const row = {};
+    headers.forEach((h, i) => { row[h] = cols[i] ?? ''; });
+    return row;
+  });
+}
+
+async function refreshFromFiles() {
+  try {
+    const [summaryResp, equityResp, tradesResp, rejResp, factorResp] = await Promise.all([
+      fetch('./summary.txt', { cache: 'no-store' }),
+      fetch('./equity_curve.csv', { cache: 'no-store' }),
+      fetch('./trades.csv', { cache: 'no-store' }),
+      fetch('./rejections.csv', { cache: 'no-store' }),
+      fetch('./factor_attribution_summary.txt', { cache: 'no-store' }),
+    ]);
+
+    if (summaryResp.ok) {
+      const s = await summaryResp.text();
+      summaryBlock.textContent = s;
+      summaryKv = parseKv(s);
+    }
+    if (equityResp.ok) {
+      const equityText = await equityResp.text();
+      const rows = parseCsv(equityText);
+      equityRows = rows.map(r => ({
+        date: r.date || '',
+        equity: Number(r.equity || 0),
+        cash: Number(r.cash || 0),
+        gross_exposure: Number(r.gross_exposure || 0),
+        net_exposure: Number(r.net_exposure || 0),
+      }));
+      labels = equityRows.map(r => r.date || '');
+      points = extractSeries(seriesSelect.value);
+    }
+    if (tradesResp.ok) {
+      const tradesText = await tradesResp.text();
+      const tradeRows = parseCsv(tradesText);
+      trades = tradeRows.map((r) => ({
+        date: r.date || '',
+        market: r.market || '',
+        symbol: r.symbol || '',
+        side: r.side || '',
+        qty: Number(r.qty || 0),
+        price: Number(r.price || 0),
+        fees: Number(r.fees || 0),
+      }));
+    }
+    if (rejResp.ok) {
+      const rejText = await rejResp.text();
+      const rejRows = parseCsv(rejText);
+      rejections = rejRows.map((r) => ({
+        date: r.date || '',
+        market: r.market || '',
+        symbol: r.symbol || '',
+        side: r.side || '',
+        qty: Number(r.qty || 0),
+        reason: r.reason || '',
+      }));
+    }
+    if (factorResp.ok) {
+      const f = await factorResp.text();
+      factorKv = parseKv(f);
+    }
+
+    const t = getText(langSwitch.value);
+    liveStatus.textContent = t.live_on;
+    liveDot.classList.add('ok');
+    applyLanguage(langSwitch.value);
+  } catch (e) {
+    const t = getText(langSwitch.value);
+    liveStatus.textContent = t.live_fallback;
+    liveDot.classList.remove('ok');
+  }
+}
+
+let activeLang = defaultLang;
+if (!(activeLang in i18n)) {
+  activeLang = 'en';
+}
+langSwitch.value = activeLang;
+langSwitch.addEventListener('change', (event) => {
+  applyLanguage(event.target.value);
+});
+seriesSelect.addEventListener('change', () => {
+  points = extractSeries(seriesSelect.value);
+  applyLanguage(langSwitch.value);
+});
+symbolInput.addEventListener('input', () => applyLanguage(langSwitch.value));
+marketSel.addEventListener('change', () => applyLanguage(langSwitch.value));
+sideSel.addEventListener('change', () => applyLanguage(langSwitch.value));
+
+window.addEventListener('resize', () => applyLanguage(langSwitch.value));
+liveStatus.textContent = getText(activeLang).live_init;
+attachChartHover();
+points = extractSeries(seriesSelect.value);
+applyLanguage(activeLang);
+setInterval(refreshFromFiles, 10000);
+refreshFromFiles();
+</script>
+</body>
+</html>
