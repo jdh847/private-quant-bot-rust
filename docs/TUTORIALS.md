@@ -93,7 +93,9 @@ Expected:
 - `outputs_rust/research_report/research_report.md`
 - `outputs_rust/research_report/research_report.html`
 - `outputs_rust/research_report/research_report.json`
+- `outputs_rust/research_report/research_report_summary.txt`
 - `outputs_rust/research_report/factor_decay.csv`
+- `outputs_rust/research_report/rolling_ic.csv`
 - `outputs_rust/research_report/regime_split.csv`
 - `outputs_rust/research_report/walk_forward_deep_dive.csv`
 

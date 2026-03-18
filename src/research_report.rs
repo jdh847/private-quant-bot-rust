@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     fs,
     path::{Path, PathBuf},
 };
@@ -78,11 +78,21 @@ pub struct FactorDecayRow {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct RollingIcRow {
+    pub date: String,
+    pub factor: String,
+    pub horizon_days: usize,
+    pub observations: usize,
+    pub ic: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ResearchReport {
     pub walk_forward_summary: WalkForwardDeepDiveSummary,
     pub walk_forward_rows: Vec<WalkForwardDeepDiveRow>,
     pub regime_rows: Vec<RegimeSplitRow>,
     pub factor_decay_rows: Vec<FactorDecayRow>,
+    pub rolling_ic_rows: Vec<RollingIcRow>,
 }
 
 #[derive(Debug, Clone)]
@@ -156,16 +166,19 @@ pub fn write_research_report(
     let snapshots = build_signal_snapshots(cfg, data)?;
     let regime_rows = build_regime_split_report(cfg, data, &snapshots, req);
     let factor_decay_rows = build_factor_decay_report(data, &snapshots, &req.factor_decay_horizons);
+    let rolling_ic_rows = build_rolling_ic_report(data, &snapshots, &req.factor_decay_horizons);
 
     write_walk_forward_deep_dive_csv(dir.join("walk_forward_deep_dive.csv"), &walk_forward_rows)?;
     write_regime_split_csv(dir.join("regime_split.csv"), &regime_rows)?;
     write_factor_decay_csv(dir.join("factor_decay.csv"), &factor_decay_rows)?;
+    write_rolling_ic_csv(dir.join("rolling_ic.csv"), &rolling_ic_rows)?;
 
     let report = ResearchReport {
         walk_forward_summary,
         walk_forward_rows,
         regime_rows,
         factor_decay_rows,
+        rolling_ic_rows,
     };
     let artifacts = write_summary_artifacts(dir, &report)?;
     Ok((report, artifacts))
@@ -666,6 +679,55 @@ fn build_factor_decay_report(
     rows
 }
 
+fn build_rolling_ic_report(
+    data: &CsvDataPortal,
+    snapshots: &[SignalSnapshot],
+    horizons: &[usize],
+) -> Vec<RollingIcRow> {
+    let index = build_forward_return_index(data, horizons);
+    let mut grouped: BTreeMap<(NaiveDate, String, usize), Vec<(f64, f64)>> = BTreeMap::new();
+
+    for snap in snapshots {
+        let Some(horizon_map) = index.get(&(snap.market.clone(), snap.symbol.clone(), snap.date))
+        else {
+            continue;
+        };
+        for &horizon in horizons {
+            let Some(forward_ret) = horizon_map.get(&horizon).copied() else {
+                continue;
+            };
+            for (factor, signal) in [
+                ("momentum", snap.factor_momentum),
+                ("mean_reversion", snap.factor_mean_reversion),
+                ("low_vol", snap.factor_low_vol),
+                ("volume", snap.factor_volume),
+                ("composite", snap.composite_alpha),
+            ] {
+                grouped
+                    .entry((snap.date, factor.to_string(), horizon))
+                    .or_default()
+                    .push((signal, forward_ret));
+            }
+        }
+    }
+
+    grouped
+        .into_iter()
+        .filter_map(|((date, factor, horizon_days), values)| {
+            if values.len() < 3 {
+                return None;
+            }
+            Some(RollingIcRow {
+                date: date.to_string(),
+                factor,
+                horizon_days,
+                observations: values.len(),
+                ic: pearson_corr(&values),
+            })
+        })
+        .collect()
+}
+
 fn build_forward_return_index(
     data: &CsvDataPortal,
     horizons: &[usize],
@@ -808,14 +870,32 @@ fn write_factor_decay_csv(path: PathBuf, rows: &[FactorDecayRow]) -> Result<()> 
     Ok(())
 }
 
+fn write_rolling_ic_csv(path: PathBuf, rows: &[RollingIcRow]) -> Result<()> {
+    let mut wtr = csv::Writer::from_path(path)?;
+    wtr.write_record(["date", "factor", "horizon_days", "observations", "ic"])?;
+    for row in rows {
+        wtr.write_record([
+            row.date.clone(),
+            row.factor.clone(),
+            row.horizon_days.to_string(),
+            row.observations.to_string(),
+            format!("{:.6}", row.ic),
+        ])?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
 fn write_summary_artifacts(dir: &Path, report: &ResearchReport) -> Result<ResearchReportArtifacts> {
     let json_path = dir.join("research_report.json");
     let markdown_path = dir.join("research_report.md");
     let html_path = dir.join("research_report.html");
+    let summary_path = dir.join("research_report_summary.txt");
 
     fs::write(&json_path, serde_json::to_string_pretty(report)?)?;
     fs::write(&markdown_path, render_markdown(report))?;
     fs::write(&html_path, render_html(report))?;
+    fs::write(&summary_path, render_summary(report))?;
 
     Ok(ResearchReportArtifacts {
         json_path,
@@ -883,12 +963,46 @@ fn render_markdown(report: &ResearchReport) -> String {
             row.long_short_spread * 100.0
         ));
     }
+    out.push_str("\n## Rolling IC\n\n");
+    out.push_str("| Date | Factor | Horizon | Obs | IC |\n");
+    out.push_str("| --- | --- | ---: | ---: | ---: |\n");
+    for row in &report.rolling_ic_rows {
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {:.4} |\n",
+            row.date, row.factor, row.horizon_days, row.observations, row.ic
+        ));
+    }
     out
+}
+
+fn render_summary(report: &ResearchReport) -> String {
+    let best_decay = report
+        .factor_decay_rows
+        .iter()
+        .max_by(|a, b| a.ic.total_cmp(&b.ic));
+    let latest_rolling = report.rolling_ic_rows.last();
+    format!(
+        "folds={}\navg_test_pnl_ratio={:.4}%\navg_test_sharpe={:.4}\navg_train_test_gap={:.4}\nstrategy_turnover_ratio={:.2}%\nregime_rows={}\nfactor_decay_rows={}\nrolling_ic_rows={}\nbest_decay_factor={}\nbest_decay_horizon_days={}\nbest_decay_ic={:.4}\nlatest_rolling_factor={}\nlatest_rolling_horizon_days={}\nlatest_rolling_ic={:.4}\n",
+        report.walk_forward_summary.folds,
+        report.walk_forward_summary.avg_test_pnl_ratio * 100.0,
+        report.walk_forward_summary.avg_test_sharpe,
+        report.walk_forward_summary.avg_train_test_gap,
+        report.walk_forward_summary.strategy_turnover_ratio * 100.0,
+        report.regime_rows.len(),
+        report.factor_decay_rows.len(),
+        report.rolling_ic_rows.len(),
+        best_decay.map(|r| r.factor.as_str()).unwrap_or("-"),
+        best_decay.map(|r| r.horizon_days).unwrap_or(0),
+        best_decay.map(|r| r.ic).unwrap_or(0.0),
+        latest_rolling.map(|r| r.factor.as_str()).unwrap_or("-"),
+        latest_rolling.map(|r| r.horizon_days).unwrap_or(0),
+        latest_rolling.map(|r| r.ic).unwrap_or(0.0),
+    )
 }
 
 fn render_html(report: &ResearchReport) -> String {
     let report_json = json_for_html(report);
-    let template = r#"<!doctype html>
+    let template = r##"<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -968,14 +1082,42 @@ fn render_html(report: &ResearchReport) -> String {
         <label class="pill">Scope
           <select id="decay-scope"></select>
         </label>
+        <label class="pill">Metric
+          <select id="decay-metric">
+            <option value="ic">IC</option>
+            <option value="long_short_spread">Long/Short</option>
+          </select>
+        </label>
       </div>
-      <div class="card chart-card">
+      <div class="grid-2">
+        <div class="card chart-card">
         <div class="sub">Heatmap of factor IC by horizon. Warm cells are stronger, cool cells are weaker.</div>
         <div id="decay-heatmap" class="heatmap"></div>
+        </div>
+        <div class="card chart-card">
+          <div class="sub">Curve view across horizons for each factor.</div>
+          <div id="decay-curve"></div>
+        </div>
       </div>
       <div class="card" style="margin-top:16px;">
         <div class="sub">Full decay table</div>
         <div id="decay-table"></div>
+      </div>
+    </section>
+    <section>
+      <div class="toolbar">
+        <h2 style="margin-right:auto;">Rolling IC</h2>
+        <label class="pill">Horizon
+          <select id="rolling-horizon"></select>
+        </label>
+      </div>
+      <div class="card chart-card">
+        <div class="sub">Cross-sectional IC over time, grouped by factor.</div>
+        <div id="rolling-ic-chart"></div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <div class="sub">Latest rolling IC rows</div>
+        <div id="rolling-ic-table"></div>
       </div>
     </section>
     <section>
@@ -1094,6 +1236,86 @@ fn render_html(report: &ResearchReport) -> String {
           <td>${{fmtPct(row.long_short_spread)}}</td>
         </tr>`).join('')
       }</tbody></table>`;
+
+      renderDecayCurve(scope, document.getElementById('decay-metric').value);
+    }}
+
+    function lineChartSvg(series, width, height) {{
+      const padding = 24;
+      const allValues = series.flatMap(s => s.values.map(v => v.y));
+      const min = Math.min(...allValues, 0);
+      const max = Math.max(...allValues, 0);
+      const span = Math.max(max - min, 1e-6);
+      const colors = ['#1f6f78', '#d9822b', '#a63d40', '#4d6c3b', '#5b4b8a'];
+      const lines = series.map((s, idx) => {{
+        const pts = s.values.map((v, i) => {{
+          const x = padding + (i * (width - padding * 2)) / Math.max(s.values.length - 1, 1);
+          const y = height - padding - ((v.y - min) / span) * (height - padding * 2);
+          return `${{x.toFixed(1)}},${{y.toFixed(1)}}`;
+        }}).join(' ');
+        const color = colors[idx % colors.length];
+        return `<polyline fill="none" stroke="${{color}}" stroke-width="3" points="${{pts}}" />
+          <text x="${{width - padding}}" y="${{padding + idx * 16}}" fill="${{color}}" font-size="12" text-anchor="end">${{esc(s.name)}}</text>`;
+      }}).join('');
+      const zeroY = height - padding - ((0 - min) / span) * (height - padding * 2);
+      return `<svg viewBox="0 0 ${{width}} ${{height}}" width="100%" height="${{height}}">
+        <line x1="${{padding}}" y1="${{zeroY}}" x2="${{width - padding}}" y2="${{zeroY}}" stroke="#d9cfc1" stroke-dasharray="4 4" />
+        <line x1="${{padding}}" y1="${{padding}}" x2="${{padding}}" y2="${{height - padding}}" stroke="#d9cfc1" />
+        <line x1="${{padding}}" y1="${{height - padding}}" x2="${{width - padding}}" y2="${{height - padding}}" stroke="#d9cfc1" />
+        ${{lines}}
+      </svg>`;
+    }}
+
+    function renderDecayCurve(scope, metric) {{
+      const rows = report.factor_decay_rows.filter(r => r.scope === scope);
+      const factors = ['momentum', 'mean_reversion', 'low_vol', 'volume', 'composite'];
+      const series = factors.map(factor => {{
+        const values = rows
+          .filter(r => r.factor === factor)
+          .sort((a, b) => a.horizon_days - b.horizon_days)
+          .map(r => ({{
+            x: r.horizon_days,
+            y: metric === 'ic' ? r.ic : r.long_short_spread,
+          }}));
+        return {{ name: factor, values }};
+      }}).filter(s => s.values.length > 0);
+      const root = document.getElementById('decay-curve');
+      root.innerHTML = series.length
+        ? lineChartSvg(series, 560, 250) +
+          `<div class="sub" style="margin-top:10px;">Metric: ${{esc(metric)}} | Scope: ${{esc(scope)}}</div>`
+        : '<div class="sub">No decay curve data</div>';
+    }}
+
+    function renderRollingIc(horizon) {{
+      const rows = report.rolling_ic_rows
+        .filter(r => Number(r.horizon_days) === Number(horizon))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      const factors = ['momentum', 'mean_reversion', 'low_vol', 'volume', 'composite'];
+      const series = factors.map(factor => {{
+        const values = rows
+          .filter(r => r.factor === factor)
+          .map((r, idx) => ({{
+            x: idx,
+            y: r.ic,
+            date: r.date,
+          }}));
+        return {{ name: factor, values }};
+      }}).filter(s => s.values.length > 0);
+      const chart = document.getElementById('rolling-ic-chart');
+      chart.innerHTML = series.length
+        ? lineChartSvg(series, 920, 260)
+        : '<div class="sub">No rolling IC data</div>';
+
+      const recent = rows.slice(-20).reverse();
+      document.getElementById('rolling-ic-table').innerHTML =
+        `<table><thead><tr><th>Date</th><th>Factor</th><th>Obs</th><th>IC</th></tr></thead><tbody>${
+          recent.map(row => `<tr>
+            <td>${{esc(row.date)}}</td>
+            <td>${{esc(row.factor)}}</td>
+            <td>${{row.observations}}</td>
+            <td>${{fmtNum(row.ic)}}</td>
+          </tr>`).join('')
+        }</tbody></table>`;
     }}
 
     function renderRegime(market) {{
@@ -1146,7 +1368,14 @@ fn render_html(report: &ResearchReport) -> String {
       const scopes = [...new Set(report.factor_decay_rows.map(r => r.scope))];
       scopeSel.innerHTML = scopes.map(scope => `<option value="${{esc(scope)}}">${{esc(scope)}}</option>`).join('');
       scopeSel.addEventListener('change', () => renderDecay(scopeSel.value));
+      document.getElementById('decay-metric').addEventListener('change', () => renderDecay(scopeSel.value));
       renderDecay(scopes[0] || 'ALL');
+
+      const horizonSel = document.getElementById('rolling-horizon');
+      const horizons = [...new Set(report.rolling_ic_rows.map(r => r.horizon_days))].sort((a, b) => a - b);
+      horizonSel.innerHTML = horizons.map(h => `<option value="${{h}}">${{h}}d</option>`).join('');
+      horizonSel.addEventListener('change', () => renderRollingIc(horizonSel.value));
+      renderRollingIc(horizons[0] || 1);
 
       const marketSel = document.getElementById('regime-market');
       const markets = [...new Set(report.regime_rows.map(r => r.market))];
@@ -1158,7 +1387,7 @@ fn render_html(report: &ResearchReport) -> String {
     init();
   </script>
 </body>
-</html>"#;
+</html>"##;
     template
         .replace("__FOLDS__", &report.walk_forward_summary.folds.to_string())
         .replace(

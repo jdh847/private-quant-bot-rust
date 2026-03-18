@@ -34,6 +34,7 @@ struct ControlCenterSnapshot {
     daemon: Option<DaemonState>,
     data_quality: Option<DataQualityStatus>,
     robustness: HashMap<String, String>,
+    research_report: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -117,6 +118,16 @@ fn collect_snapshot(root: &Path) -> Result<ControlCenterSnapshot> {
         None => HashMap::new(),
     };
 
+    let research_report_path = first_existing_path(&[
+        root.join("research_report_summary.txt"),
+        root.join("research_report")
+            .join("research_report_summary.txt"),
+    ]);
+    let research_report = match research_report_path {
+        Some(path) => parse_key_value_file(&path)?,
+        None => HashMap::new(),
+    };
+
     Ok(ControlCenterSnapshot {
         summary,
         registry_runs: registry_entries.len(),
@@ -124,6 +135,7 @@ fn collect_snapshot(root: &Path) -> Result<ControlCenterSnapshot> {
         daemon,
         data_quality,
         robustness,
+        research_report,
     })
 }
 
@@ -230,6 +242,45 @@ fn render_snapshot(
             snapshot
                 .robustness
                 .get("avg_deflated_sharpe_proxy")
+                .map_or("-", String::as_str),
+        )?;
+    }
+
+    if !snapshot.research_report.is_empty() {
+        writeln!(
+            out,
+            "Research Report | folds={} avg_test_sharpe={} best_decay={} {}d ic={} latest_rolling={} {}d ic={}",
+            snapshot
+                .research_report
+                .get("folds")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("avg_test_sharpe")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("best_decay_factor")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("best_decay_horizon_days")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("best_decay_ic")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("latest_rolling_factor")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("latest_rolling_horizon_days")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("latest_rolling_ic")
                 .map_or("-", String::as_str),
         )?;
     }
