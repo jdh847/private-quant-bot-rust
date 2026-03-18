@@ -63,6 +63,7 @@ pub fn create_run_bundle(req: &BundleRequest) -> Result<BundleReport> {
     let wanted = [
         "dashboard.html",
         "dashboard_share.html",
+        "dashboard_cover.html",
         "summary.txt",
         "config_used_redacted.toml",
         "audit_snapshot.json",

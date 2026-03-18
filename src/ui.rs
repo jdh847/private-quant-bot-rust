@@ -2380,10 +2380,19 @@ refreshFromFiles();
         &leaderboard_rows,
         &data_quality_rows,
     );
+    let cover_html = render_share_cover_dashboard(
+        language,
+        &summary_kv,
+        &research_summary_kv,
+        &strategy_compare_rows,
+        &leaderboard_rows,
+        &data_quality_rows,
+    );
 
     let mut dashboard_path = output_dir.join("dashboard.html");
     fs::write(&dashboard_path, html)?;
     fs::write(output_dir.join("dashboard_share.html"), share_html)?;
+    fs::write(output_dir.join("dashboard_cover.html"), cover_html)?;
     dashboard_path = fs::canonicalize(dashboard_path)?;
 
     Ok(dashboard_path)
@@ -2647,6 +2656,183 @@ if (printBtn) {{
         fail = fail,
         top_combo_html = top_combo_html,
         leaderboard_html = leaderboard_html
+    )
+}
+
+fn render_share_cover_dashboard(
+    language: Language,
+    summary_kv: &serde_json::Value,
+    research_summary_kv: &serde_json::Value,
+    strategy_compare_rows: &[StrategyCompareRowUi],
+    leaderboard_rows: &[LeaderboardRowUi],
+    data_quality_rows: &[DataQualityRowUi],
+) -> String {
+    let text = dashboard_text(language);
+    let pnl_ratio = kv_string(summary_kv, "pnl_ratio");
+    let sharpe = kv_string(summary_kv, "sharpe");
+    let max_drawdown = kv_string(summary_kv, "max_drawdown");
+    let end_equity = kv_string(summary_kv, "end_equity");
+    let best_decay_factor = kv_string(research_summary_kv, "best_decay_factor");
+    let best_decay_horizon = kv_string(research_summary_kv, "best_decay_horizon_days");
+    let best_decay_ic = kv_string(research_summary_kv, "best_decay_ic");
+    let latest_rolling_factor = kv_string(research_summary_kv, "latest_rolling_factor");
+    let latest_rolling_horizon = kv_string(research_summary_kv, "latest_rolling_horizon_days");
+    let latest_rolling_ic = kv_string(research_summary_kv, "latest_rolling_ic");
+    let top_combo = strategy_compare_rows.first();
+    let top_leaderboard = leaderboard_rows.first();
+    let markets = data_quality_rows
+        .iter()
+        .map(|r| r.market.clone())
+        .collect::<Vec<_>>()
+        .join(" / ");
+    let cover_sub = if let Some(row) = top_combo {
+        format!(
+            "{}: {} / {} | {}={:.3}",
+            text.strategy_comparison,
+            escape_html(&row.strategy_plugin),
+            escape_html(&row.portfolio_method),
+            text.best_score,
+            row.best_score
+        )
+    } else {
+        "paper-only multi-market research stack".to_string()
+    };
+    let leaderboard_note = if let Some(row) = top_leaderboard {
+        format!(
+            "{} #{} | {}={:.3} | {}={}",
+            text.public_leaderboard,
+            row.rank,
+            text.score,
+            row.score,
+            text.source,
+            escape_html(&row.source)
+        )
+    } else {
+        text.public_leaderboard.to_string()
+    };
+
+    format!(
+        r#"<!doctype html>
+<html lang="{lang}">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{title} Cover</title>
+<style>
+html, body {{ margin:0; padding:0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+body {{
+  font-family: "Avenir Next", "Helvetica Neue", sans-serif;
+  color: #f8fafc;
+  background:
+    radial-gradient(900px 520px at 8% 12%, rgba(245,158,11,.32), transparent 55%),
+    radial-gradient(900px 600px at 84% 18%, rgba(14,165,233,.30), transparent 55%),
+    linear-gradient(135deg, #0f172a 0%, #102033 52%, #132a42 100%);
+}}
+.cover {{ width: 100%; min-height: 100vh; padding: 40px; display:grid; grid-template-rows: auto 1fr auto; gap: 22px; }}
+.chips {{ display:flex; gap:10px; flex-wrap:wrap; }}
+.chip {{ border:1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.08); border-radius:999px; padding:8px 12px; font-size:13px; }}
+.hero {{ display:grid; grid-template-columns: 1.2fr .8fr; gap: 22px; align-items:stretch; }}
+.title {{ font-size: 58px; font-weight: 900; line-height: .94; letter-spacing: -0.03em; max-width: 10ch; }}
+.subtitle {{ margin-top: 16px; color: rgba(241,245,249,.76); font-size: 17px; max-width: 48ch; line-height: 1.45; }}
+.panel {{ background: rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12); border-radius: 28px; padding: 24px; backdrop-filter: blur(10px); }}
+.metrics {{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:12px; }}
+.metric {{ background: rgba(255,255,255,.07); border-radius: 18px; padding: 16px; }}
+.k {{ color: rgba(241,245,249,.68); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }}
+.v {{ font-size: 28px; font-weight: 900; margin-top: 8px; }}
+.grid {{ display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px; }}
+.label {{ color: rgba(241,245,249,.65); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }}
+.main {{ font-size: 20px; font-weight: 800; line-height: 1.3; }}
+.sub {{ color: rgba(241,245,249,.72); font-size: 14px; line-height: 1.45; margin-top: 8px; }}
+.footer {{ display:flex; justify-content:space-between; gap:14px; align-items:flex-end; color: rgba(241,245,249,.66); font-size: 13px; }}
+@page {{ size: 1600px 900px; margin: 0; }}
+@media print {{
+  .cover {{ min-height: auto; height: 100vh; }}
+}}
+@media (max-width: 1100px) {{
+  .hero, .grid {{ grid-template-columns: 1fr; }}
+  .title {{ max-width: none; font-size: 42px; }}
+}}
+</style>
+</head>
+<body>
+  <main class="cover">
+    <div class="chips">
+      <span class="chip">{subtitle}</span>
+      <span class="chip">{markets}</span>
+      <span class="chip">paper-only</span>
+      <span class="chip">dashboard_cover.html</span>
+    </div>
+
+    <section class="hero">
+      <div class="panel">
+        <div class="title">{title}</div>
+        <div class="subtitle">{cover_sub}</div>
+      </div>
+      <div class="panel">
+        <div class="metrics">
+          <div class="metric"><div class="k">{kpi_pnl_ratio}</div><div class="v">{pnl_ratio}</div></div>
+          <div class="metric"><div class="k">{kpi_sharpe}</div><div class="v">{sharpe}</div></div>
+          <div class="metric"><div class="k">{kpi_max_drawdown}</div><div class="v">{max_drawdown}</div></div>
+          <div class="metric"><div class="k">{kpi_end_equity}</div><div class="v">{end_equity}</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="label">{research}</div>
+        <div class="main">{best_decay_factor} / {best_decay_horizon}d / IC={best_decay_ic}</div>
+        <div class="sub">{best_decay}</div>
+      </div>
+      <div class="panel">
+        <div class="label">{rolling_ic}</div>
+        <div class="main">{latest_rolling_factor} / {latest_rolling_horizon}d / IC={latest_rolling_ic}</div>
+        <div class="sub">{latest_rolling}</div>
+      </div>
+      <div class="panel">
+        <div class="label">{public_leaderboard}</div>
+        <div class="main">{leaderboard_note}</div>
+        <div class="sub">{generated_from}</div>
+      </div>
+    </section>
+
+    <div class="footer">
+      <div>{title} | Rust paper trading research stack</div>
+      <div>Open the full analytics in dashboard.html</div>
+    </div>
+  </main>
+</body>
+</html>"#,
+        lang = language.html_lang(),
+        title = escape_html(text.title),
+        subtitle = escape_html(text.subtitle),
+        markets = if markets.is_empty() {
+            "US / A-share / JP".to_string()
+        } else {
+            escape_html(&markets)
+        },
+        cover_sub = cover_sub,
+        research = escape_html(text.research),
+        rolling_ic = escape_html(text.rolling_ic),
+        best_decay = escape_html(text.best_decay),
+        latest_rolling = escape_html(text.latest_rolling),
+        public_leaderboard = escape_html(text.public_leaderboard),
+        generated_from = escape_html(text.generated_from),
+        leaderboard_note = leaderboard_note,
+        kpi_pnl_ratio = escape_html(text.kpi_pnl_ratio),
+        kpi_sharpe = escape_html(text.kpi_sharpe),
+        kpi_max_drawdown = escape_html(text.kpi_max_drawdown),
+        kpi_end_equity = escape_html(text.kpi_end_equity),
+        pnl_ratio = escape_html(&pnl_ratio),
+        sharpe = escape_html(&sharpe),
+        max_drawdown = escape_html(&max_drawdown),
+        end_equity = escape_html(&end_equity),
+        best_decay_factor = escape_html(&best_decay_factor),
+        best_decay_horizon = escape_html(&best_decay_horizon),
+        best_decay_ic = escape_html(&best_decay_ic),
+        latest_rolling_factor = escape_html(&latest_rolling_factor),
+        latest_rolling_horizon = escape_html(&latest_rolling_horizon),
+        latest_rolling_ic = escape_html(&latest_rolling_ic),
     )
 }
 
@@ -3030,6 +3216,8 @@ mod tests {
         let html = fs::read_to_string(path).expect("read dashboard");
         let share_html =
             fs::read_to_string(output_dir.join("dashboard_share.html")).expect("read share");
+        let cover_html =
+            fs::read_to_string(output_dir.join("dashboard_cover.html")).expect("read cover");
         assert!(html.contains("Research"));
         assert!(html.contains("Strategy Comparison"));
         assert!(html.contains("Public Leaderboard"));
@@ -3050,6 +3238,9 @@ mod tests {
         assert!(share_html.contains("paper-only"));
         assert!(share_html.contains("@media print"));
         assert!(share_html.contains("window.print()"));
+        assert!(cover_html.contains("dashboard_cover.html"));
+        assert!(cover_html.contains("paper-only"));
+        assert!(cover_html.contains("Open the full analytics in dashboard.html"));
     }
 
     fn make_temp_output_dir(prefix: &str) -> PathBuf {
