@@ -73,6 +73,7 @@ Detailed mapping: `docs/GITHUB_LEARNINGS.md`
 - Experiment tracking and run registry (CSV + JSON + top-run Markdown)
 - Terminal control center with live-refresh status (`control-center`)
 - Public leaderboard builder (`leaderboard`) combining registry + benchmark + research
+- Dashboard run-to-run compare shortcut (pick two runs and copy a ready-to-run `compare` command)
 - Strategy Plugin SDK generator + validator (`sdk-init` / `sdk-check`)
 - SDK runtime auto-registration (`sdk-register`) so plugin id can be used directly in `--strategy-plugin`
 

@@ -255,6 +255,13 @@ struct DashboardI18nText {
     selected_entry: String,
     time_label: String,
     notes_label: String,
+    compare_runs: String,
+    baseline_run: String,
+    candidate_run: String,
+    output_dir_label: String,
+    copy_command_label: String,
+    compare_hint: String,
+    compare_needs_two_runs: String,
     research: String,
     decay_overview: String,
     rolling_ic: String,
@@ -355,6 +362,13 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         selected_entry: t.selected_entry.to_string(),
         time_label: t.time_label.to_string(),
         notes_label: t.notes_label.to_string(),
+        compare_runs: t.compare_runs.to_string(),
+        baseline_run: t.baseline_run.to_string(),
+        candidate_run: t.candidate_run.to_string(),
+        output_dir_label: t.output_dir_label.to_string(),
+        copy_command_label: t.copy_command_label.to_string(),
+        compare_hint: t.compare_hint.to_string(),
+        compare_needs_two_runs: t.compare_needs_two_runs.to_string(),
         research: t.research.to_string(),
         decay_overview: t.decay_overview.to_string(),
         rolling_ic: t.rolling_ic.to_string(),
@@ -642,6 +656,10 @@ th {{ color: var(--muted); font-weight: 600; }}
 .compare-kpi .line {{ display:flex; justify-content:space-between; gap:10px; font-size:13px; padding:3px 0; }}
 .compare-kpi .delta-pos {{ color: #0f766e; font-weight: 800; }}
 .compare-kpi .delta-neg {{ color: #b91c1c; font-weight: 800; }}
+.action-btn {{ border: 1px solid rgba(15,23,42,0.12); background: rgba(255,255,255,0.92); border-radius: 10px; padding: 8px 12px; font-size: 13px; font-weight: 700; cursor: pointer; }}
+.action-btn:disabled {{ opacity: 0.55; cursor: default; }}
+.compare-setup {{ display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px; }}
+.compare-block {{ margin-top:10px; }}
 @keyframes rise {{ from {{ transform: translateY(8px); opacity: 0; }} to {{ transform: translateY(0); opacity: 1; }} }}
 @media (max-width: 960px) {{
   .grid {{ grid-template-columns: 1fr; }}
@@ -650,6 +668,7 @@ th {{ color: var(--muted); font-weight: 600; }}
   .bar-row {{ grid-template-columns: 120px 1fr 56px; }}
   .mini-grid {{ grid-template-columns: 1fr; }}
   .compare-kpis {{ grid-template-columns: 1fr; }}
+  .compare-setup {{ grid-template-columns: 1fr; }}
 }}
 </style>
 </head>
@@ -946,6 +965,31 @@ th {{ color: var(--muted); font-weight: 600; }}
           </table>
         </div>
       </div>
+      <div style="margin-top:12px;">
+        <div class="toolbar">
+          <div class="subtle-title" id="compare-runs-title" style="margin:0;">{compare_runs}</div>
+          <button id="compare-copy-btn" class="action-btn" type="button">{copy_command_label}</button>
+        </div>
+        <div class="compare-setup">
+          <label class="stack">
+            <span class="subtle-title" id="compare-baseline-label">{baseline_run}</span>
+            <select id="compare-baseline-select" class="select"></select>
+          </label>
+          <label class="stack">
+            <span class="subtle-title" id="compare-candidate-label">{candidate_run}</span>
+            <select id="compare-candidate-select" class="select"></select>
+          </label>
+        </div>
+        <div class="compare-block">
+          <div class="subtle-title" id="compare-output-label">{output_dir_label}</div>
+          <div class="summary" id="compare-output-dir">-</div>
+        </div>
+        <div class="compare-block">
+          <div class="subtle-title" id="compare-command-label">{command_label}</div>
+          <div class="summary" id="compare-command-block">-</div>
+        </div>
+        <div class="sub" id="compare-hint" style="margin-top:8px;">{compare_hint}</div>
+      </div>
     </section>
 
     <section class="panel" data-delay="5" style="margin-top: 16px;">
@@ -1033,6 +1077,8 @@ const i18n = {i18n_json};
 const defaultLang = {default_lang_json};
 let strategySelectionKey = '';
 let leaderboardSelectionKey = '';
+let compareBaselineRunId = '';
+let compareCandidateRunId = '';
 
 const c = document.getElementById('chart');
 const ctx = c.getContext('2d');
@@ -1417,6 +1463,139 @@ function fmtDelta(value, isPct) {{
   return `<span class="${{cls}}">${{text}}</span>`;
 }}
 
+function shellQuote(value) {{
+  const s = String(value == null ? '' : value);
+  return `'${{s.replace(/'/g, `'\"'\"'`)}}'`;
+}}
+
+function runOptionLabel(row) {{
+  const stamp = row && row.timestamp_utc ? row.timestamp_utc : '-';
+  const command = row && row.command ? row.command : '-';
+  const combo = [row && row.strategy_plugin ? row.strategy_plugin : '-', row && row.portfolio_method ? row.portfolio_method : '-'].join(' / ');
+  const runId = row && row.run_id ? row.run_id : '-';
+  return `${{stamp}} | ${{command}} | ${{combo}} | ${{runId}}`;
+}}
+
+function parentDir(path) {{
+  const normalized = String(path || '').replace(/\\\\/g, '/').replace(/\/+$/, '');
+  const idx = normalized.lastIndexOf('/');
+  return idx > 0 ? normalized.slice(0, idx) : '';
+}}
+
+function slugify(value) {{
+  return String(value || 'run')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40) || 'run';
+}}
+
+function suggestCompareOutputDir(baselineRow, candidateRow) {{
+  const baseParent = parentDir(candidateRow && candidateRow.output_dir)
+    || parentDir(baselineRow && baselineRow.output_dir)
+    || 'outputs_rust';
+  return `${{baseParent}}/compare_${{slugify(baselineRow && baselineRow.run_id)}}_vs_${{slugify(candidateRow && candidateRow.run_id)}}`;
+}}
+
+function renderCompareShortcut(text, availableRows, preferredRows) {{
+  const baselineSelect = document.getElementById('compare-baseline-select');
+  const candidateSelect = document.getElementById('compare-candidate-select');
+  const outputEl = document.getElementById('compare-output-dir');
+  const commandEl = document.getElementById('compare-command-block');
+  const hintEl = document.getElementById('compare-hint');
+  const copyBtn = document.getElementById('compare-copy-btn');
+  const rows = Array.isArray(availableRows) ? availableRows.slice() : [];
+  const preferred = Array.isArray(preferredRows) ? preferredRows.filter(Boolean) : [];
+
+  if (rows.length < 2) {{
+    baselineSelect.innerHTML = '';
+    candidateSelect.innerHTML = '';
+    outputEl.textContent = '-';
+    commandEl.textContent = text.compare_needs_two_runs;
+    hintEl.textContent = text.compare_needs_two_runs;
+    copyBtn.disabled = true;
+    copyBtn.onclick = null;
+    return;
+  }}
+
+  const validIds = new Set(rows.map((row) => String(row.run_id || '')));
+  const firstPreferred = preferred[0] || rows[0];
+  const secondPreferred = preferred.find((row) => row && row.run_id !== (firstPreferred && firstPreferred.run_id))
+    || rows.find((row) => row && row.run_id !== (firstPreferred && firstPreferred.run_id))
+    || rows[1];
+
+  if (!compareCandidateRunId || !validIds.has(compareCandidateRunId)) {{
+    compareCandidateRunId = firstPreferred && firstPreferred.run_id ? firstPreferred.run_id : String(rows[0].run_id || '');
+  }}
+  if (!compareBaselineRunId || !validIds.has(compareBaselineRunId) || compareBaselineRunId === compareCandidateRunId) {{
+    compareBaselineRunId = secondPreferred && secondPreferred.run_id ? secondPreferred.run_id : String(rows[1].run_id || '');
+  }}
+  if (compareBaselineRunId === compareCandidateRunId) {{
+    const alt = rows.find((row) => row.run_id !== compareCandidateRunId);
+    compareBaselineRunId = alt ? String(alt.run_id || '') : compareBaselineRunId;
+  }}
+
+  const optionsHtml = rows.map((row) => `<option value="${{esc(String(row.run_id || ''))}}">${{esc(runOptionLabel(row))}}</option>`).join('');
+  baselineSelect.innerHTML = optionsHtml;
+  candidateSelect.innerHTML = optionsHtml;
+  baselineSelect.value = compareBaselineRunId;
+  candidateSelect.value = compareCandidateRunId;
+
+  baselineSelect.onchange = () => {{
+    compareBaselineRunId = baselineSelect.value || '';
+    renderCompareShortcut(text, rows, preferred);
+  }};
+  candidateSelect.onchange = () => {{
+    compareCandidateRunId = candidateSelect.value || '';
+    renderCompareShortcut(text, rows, preferred);
+  }};
+
+  const baselineRow = rows.find((row) => String(row.run_id || '') === compareBaselineRunId) || rows[0];
+  const candidateRow = rows.find((row) => String(row.run_id || '') === compareCandidateRunId) || rows[1];
+  const outputDir = suggestCompareOutputDir(baselineRow, candidateRow);
+  const command = `cargo run --bin compare -- --baseline-dir ${{shellQuote(baselineRow.output_dir || '')}} --candidate-dir ${{shellQuote(candidateRow.output_dir || '')}} --output-dir ${{shellQuote(outputDir)}}`;
+
+  outputEl.textContent = outputDir;
+  commandEl.textContent = command;
+  hintEl.textContent = `${{text.compare_hint}} ${{text.baseline_run}}=${{runOptionLabel(baselineRow)}} | ${{text.candidate_run}}=${{runOptionLabel(candidateRow)}}`;
+  copyBtn.disabled = false;
+  copyBtn.textContent = text.copy_command_label;
+  copyBtn.onclick = async () => {{
+    const fallbackCopy = () => {{
+      const range = document.createRange();
+      range.selectNodeContents(commandEl);
+      const selection = window.getSelection();
+      if (selection) {{
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }}
+      try {{
+        document.execCommand('copy');
+        copyBtn.textContent = `${{text.copy_command_label}} OK`;
+      }} catch (_) {{
+        copyBtn.textContent = text.copy_command_label;
+      }}
+      window.setTimeout(() => {{
+        copyBtn.textContent = text.copy_command_label;
+        if (selection) selection.removeAllRanges();
+      }}, 1200);
+    }};
+    try {{
+      if (navigator.clipboard && navigator.clipboard.writeText) {{
+        await navigator.clipboard.writeText(command);
+        copyBtn.textContent = `${{text.copy_command_label}} OK`;
+        window.setTimeout(() => {{
+          copyBtn.textContent = text.copy_command_label;
+        }}, 1200);
+      }} else {{
+        fallbackCopy();
+      }}
+    }} catch (_) {{
+      fallbackCopy();
+    }}
+  }};
+}}
+
 function renderStrategyComparison(text) {{
   const selectedRange = document.getElementById('strategy-time-select').value || 'ALL';
   const filteredRegistryRows = (registryRows || []).filter((r) => inTimeRange(r.timestamp_utc, selectedRange));
@@ -1432,6 +1611,7 @@ function renderStrategyComparison(text) {{
     detailBody.innerHTML = `<tr><td colspan="6" class="sub">run_registry.csv not found</td></tr>`;
     selectedChip.textContent = '';
     stats.textContent = '0';
+    renderCompareShortcut(text, filteredRegistryRows, []);
     return;
   }}
 
@@ -1537,6 +1717,8 @@ function renderStrategyComparison(text) {{
       <div class="line"><span>${{esc(text.delta_label)}}</span>${{fmtDelta(delta, item.isPct)}}</div>
     </div>`;
   }}).join('');
+
+  renderCompareShortcut(text, filteredRegistryRows, detailRows);
 }}
 
 function renderPublicLeaderboard(text) {{
@@ -1937,6 +2119,13 @@ function applyLanguage(lang) {{
   document.getElementById('strategy-detail-pnl').textContent = text.avg_pnl_short;
   document.getElementById('strategy-detail-sharpe').textContent = text.avg_sharpe;
   document.getElementById('strategy-detail-notes').textContent = text.notes_label;
+  document.getElementById('compare-runs-title').textContent = text.compare_runs;
+  document.getElementById('compare-baseline-label').textContent = text.baseline_run;
+  document.getElementById('compare-candidate-label').textContent = text.candidate_run;
+  document.getElementById('compare-output-label').textContent = text.output_dir_label;
+  document.getElementById('compare-command-label').textContent = text.command_label;
+  document.getElementById('compare-copy-btn').textContent = text.copy_command_label;
+  document.getElementById('compare-hint').textContent = text.compare_hint;
   document.getElementById('public-leaderboard-title').textContent = text.public_leaderboard;
   document.getElementById('leaderboard-source-label').textContent = text.source;
   document.getElementById('leaderboard-time-label').textContent = text.time_range;
@@ -2337,6 +2526,12 @@ refreshFromFiles();
         run_details = text.run_details,
         time_label = text.time_label,
         notes_label = text.notes_label,
+        compare_runs = text.compare_runs,
+        baseline_run = text.baseline_run,
+        candidate_run = text.candidate_run,
+        output_dir_label = text.output_dir_label,
+        copy_command_label = text.copy_command_label,
+        compare_hint = text.compare_hint,
         research = text.research,
         decay_overview = text.decay_overview,
         rolling_ic = text.rolling_ic,
@@ -3363,10 +3558,15 @@ mod tests {
         assert!(html.contains("Strategy Comparison"));
         assert!(html.contains("Public Leaderboard"));
         assert!(html.contains("strategy-detail-rows"));
+        assert!(html.contains("compare-baseline-select"));
+        assert!(html.contains("compare-candidate-select"));
+        assert!(html.contains("compare-copy-btn"));
         assert!(html.contains("leaderboard-detail-rows"));
         assert!(html.contains("researchDecayRows"));
         assert!(html.contains("registryRows"));
         assert!(html.contains("leaderboardRows"));
+        assert!(html.contains("renderCompareShortcut"));
+        assert!(html.contains("cargo run --bin compare -- --baseline-dir"));
         assert!(html.contains("momentum"));
         assert!(html.contains("researchRollingRows"));
         assert!(html.contains("research-decay-chart"));
