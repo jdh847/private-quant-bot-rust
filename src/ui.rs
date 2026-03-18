@@ -229,6 +229,10 @@ struct DashboardI18nText {
     plugin: String,
     method: String,
     source: String,
+    time_range: String,
+    all_time: String,
+    recent_7d: String,
+    recent_30d: String,
     scenario: String,
     score: String,
     command_label: String,
@@ -316,6 +320,10 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         plugin: t.plugin.to_string(),
         method: t.method.to_string(),
         source: t.source.to_string(),
+        time_range: t.time_range.to_string(),
+        all_time: t.all_time.to_string(),
+        recent_7d: t.recent_7d.to_string(),
+        recent_30d: t.recent_30d.to_string(),
         scenario: t.scenario.to_string(),
         score: t.score.to_string(),
         command_label: t.command_label.to_string(),
@@ -849,6 +857,15 @@ th {{ color: var(--muted); font-weight: 600; }}
         <h3 id="strategy-comparison-title" style="margin:0;">{strategy_comparison}</h3>
         <span class="chip" id="strategy-comparison-stats"></span>
       </div>
+      <div class="toolbar" style="margin-bottom:10px;">
+        <label class="pill"><span id="strategy-time-label">{time_range}</span>
+          <select id="strategy-time-select" class="select">
+            <option value="ALL">{all_time}</option>
+            <option value="7D">{recent_7d}</option>
+            <option value="30D">{recent_30d}</option>
+          </select>
+        </label>
+      </div>
       <div class="grid">
         <div class="chart-shell">
           <div class="subtle-title" id="top-runs-title">{top_runs}</div>
@@ -881,6 +898,13 @@ th {{ color: var(--muted); font-weight: 600; }}
       <div class="toolbar" style="margin-bottom:10px;">
         <label class="pill"><span id="leaderboard-source-label">{source}</span>
           <select id="leaderboard-source-select" class="select"></select>
+        </label>
+        <label class="pill"><span id="leaderboard-time-label">{time_range}</span>
+          <select id="leaderboard-time-select" class="select">
+            <option value="ALL">{all_time}</option>
+            <option value="7D">{recent_7d}</option>
+            <option value="30D">{recent_30d}</option>
+          </select>
         </label>
       </div>
       <div class="table-card">
@@ -1255,6 +1279,7 @@ function parseLeaderboardRows(rows) {{
   return (rows || []).map((r) => ({{
     rank: Number(r.rank || 0),
     source: r.source || '',
+    timestamp_utc: r.timestamp_utc || '',
     command: r.command || '',
     scenario: r.scenario || '',
     strategy_plugin: r.strategy_plugin || '',
@@ -1266,8 +1291,27 @@ function parseLeaderboardRows(rows) {{
   }}));
 }}
 
+function cutoffForRange(range) {{
+  const now = Date.now();
+  if (range === '7D') return now - 7 * 24 * 60 * 60 * 1000;
+  if (range === '30D') return now - 30 * 24 * 60 * 60 * 1000;
+  return null;
+}}
+
+function inTimeRange(timestamp, range) {{
+  if (range === 'ALL') return true;
+  if (!timestamp) return false;
+  const cutoff = cutoffForRange(range);
+  if (cutoff == null) return true;
+  const ts = Date.parse(timestamp);
+  if (Number.isNaN(ts)) return false;
+  return ts >= cutoff;
+}}
+
 function renderStrategyComparison(text) {{
-  strategyCompareRows = buildStrategyCompare(registryRows);
+  const selectedRange = document.getElementById('strategy-time-select').value || 'ALL';
+  const filteredRegistryRows = (registryRows || []).filter((r) => inTimeRange(r.timestamp_utc, selectedRange));
+  strategyCompareRows = buildStrategyCompare(filteredRegistryRows);
   const chart = document.getElementById('strategy-compare-chart');
   const body = document.getElementById('strategy-compare-rows');
   const stats = document.getElementById('strategy-comparison-stats');
@@ -1301,8 +1345,8 @@ function renderStrategyComparison(text) {{
   </tr>`).join('');
 
   const combos = strategyCompareRows.length;
-  const runs = (registryRows || []).filter((r) => r.strategy_plugin || r.portfolio_method).length;
-  stats.textContent = `${{runs}} runs | ${{combos}} combos`;
+  const runs = filteredRegistryRows.filter((r) => r.strategy_plugin || r.portfolio_method).length;
+  stats.textContent = `${{runs}} runs | ${{combos}} combos | range=${{selectedRange}}`;
 }}
 
 function renderPublicLeaderboard(text) {{
@@ -1314,7 +1358,10 @@ function renderPublicLeaderboard(text) {{
   sourceSel.value = opts.includes(prev) ? prev : 'ALL';
 
   const selected = sourceSel.value;
-  const filtered = (leaderboardRows || []).filter((r) => selected === 'ALL' || r.source === selected);
+  const selectedRange = document.getElementById('leaderboard-time-select').value || 'ALL';
+  const filtered = (leaderboardRows || [])
+    .filter((r) => selected === 'ALL' || r.source === selected)
+    .filter((r) => selectedRange === 'ALL' ? true : inTimeRange(r.timestamp_utc, selectedRange));
   document.getElementById('leaderboard-rows').innerHTML = filtered.length === 0
     ? `<tr><td colspan="9" class="sub">leaderboard_public.csv not found</td></tr>`
     : filtered.slice(0, 12).map((r) => `<tr>
@@ -1330,7 +1377,7 @@ function renderPublicLeaderboard(text) {{
     </tr>`).join('');
 
   document.getElementById('public-leaderboard-stats').textContent =
-    `${{(leaderboardRows || []).length}} rows | source=${{selected}}`;
+    `${{filtered.length}} rows | source=${{selected}} | range=${{selectedRange}}`;
 }}
 
 function researchCardValue(key) {{
@@ -1644,6 +1691,7 @@ function applyLanguage(lang) {{
   document.getElementById('factors-title').textContent = text.factors;
   document.getElementById('strategy-comparison-title').textContent = text.strategy_comparison;
   document.getElementById('top-runs-title').textContent = text.top_runs;
+  document.getElementById('strategy-time-label').textContent = text.time_range;
   document.getElementById('strategy-th-plugin').textContent = text.plugin;
   document.getElementById('strategy-th-method').textContent = text.method;
   document.getElementById('strategy-th-runs').textContent = text.runs_label;
@@ -1653,6 +1701,7 @@ function applyLanguage(lang) {{
   document.getElementById('strategy-th-avg-sharpe').textContent = text.avg_sharpe;
   document.getElementById('public-leaderboard-title').textContent = text.public_leaderboard;
   document.getElementById('leaderboard-source-label').textContent = text.source;
+  document.getElementById('leaderboard-time-label').textContent = text.time_range;
   document.getElementById('leaderboard-th-rank').textContent = text.rank;
   document.getElementById('leaderboard-th-source').textContent = text.source;
   document.getElementById('leaderboard-th-command').textContent = text.command_label;
@@ -1662,6 +1711,20 @@ function applyLanguage(lang) {{
   document.getElementById('leaderboard-th-score').textContent = text.score;
   document.getElementById('leaderboard-th-pnl').textContent = text.avg_pnl_short;
   document.getElementById('leaderboard-th-sharpe').textContent = text.avg_sharpe;
+  const strategyTimeSelect = document.getElementById('strategy-time-select');
+  const leaderboardTimeSelect = document.getElementById('leaderboard-time-select');
+  const setRangeOptions = (sel) => {{
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = `
+      <option value="ALL">${{text.all_time}}</option>
+      <option value="7D">${{text.recent_7d}}</option>
+      <option value="30D">${{text.recent_30d}}</option>
+    `;
+    sel.value = current || 'ALL';
+  }};
+  setRangeOptions(strategyTimeSelect);
+  setRangeOptions(leaderboardTimeSelect);
   document.getElementById('research-title').textContent = text.research;
   document.getElementById('decay-chart-title').textContent = text.decay_overview;
   document.getElementById('decay-title').textContent = text.decay_overview;
@@ -1957,7 +2020,9 @@ document.getElementById('research-decay-scope').addEventListener('change', () =>
 document.getElementById('research-decay-metric').addEventListener('change', () => renderResearchCharts(getText(langSwitch.value)));
 document.getElementById('research-rolling-horizon-select').addEventListener('change', () => renderResearchCharts(getText(langSwitch.value)));
 document.getElementById('research-regime-market').addEventListener('change', () => renderRegime(getText(langSwitch.value)));
+document.getElementById('strategy-time-select').addEventListener('change', () => renderStrategyComparison(getText(langSwitch.value)));
 document.getElementById('leaderboard-source-select').addEventListener('change', () => renderPublicLeaderboard(getText(langSwitch.value)));
+document.getElementById('leaderboard-time-select').addEventListener('change', () => renderPublicLeaderboard(getText(langSwitch.value)));
 symbolInput.addEventListener('input', () => applyLanguage(langSwitch.value));
 marketSel.addEventListener('change', () => applyLanguage(langSwitch.value));
 sideSel.addEventListener('change', () => applyLanguage(langSwitch.value));
@@ -2007,6 +2072,10 @@ refreshFromFiles();
         plugin = text.plugin,
         method = text.method,
         source = text.source,
+        time_range = text.time_range,
+        all_time = text.all_time,
+        recent_7d = text.recent_7d,
+        recent_30d = text.recent_30d,
         scenario = text.scenario,
         score = text.score,
         command_label = text.command_label,
