@@ -152,6 +152,7 @@ struct StrategyCompareRowUi {
     avg_score: f64,
     best_score: f64,
     avg_pnl_ratio: f64,
+    avg_max_drawdown: f64,
     avg_sharpe: f64,
 }
 
@@ -245,6 +246,10 @@ struct DashboardI18nText {
     avg_sharpe: String,
     top_runs: String,
     composite_score: String,
+    latest_vs_selected: String,
+    current_label: String,
+    selected_label: String,
+    delta_label: String,
     run_details: String,
     selected_combo: String,
     selected_entry: String,
@@ -341,6 +346,10 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         avg_sharpe: t.avg_sharpe.to_string(),
         top_runs: t.top_runs.to_string(),
         composite_score: t.composite_score.to_string(),
+        latest_vs_selected: t.latest_vs_selected.to_string(),
+        current_label: t.current_label.to_string(),
+        selected_label: t.selected_label.to_string(),
+        delta_label: t.delta_label.to_string(),
         run_details: t.run_details.to_string(),
         selected_combo: t.selected_combo.to_string(),
         selected_entry: t.selected_entry.to_string(),
@@ -627,6 +636,12 @@ th {{ color: var(--muted); font-weight: 600; }}
 .compare-note {{ font-size:12px; color:var(--muted); text-align:center; }}
 .clickable {{ cursor:pointer; }}
 .selected-row {{ background: rgba(245,158,11,0.10); }}
+.compare-kpis {{ display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px; }}
+.compare-kpi {{ background: rgba(255,255,255,0.74); border:1px solid rgba(15,23,42,0.08); border-radius:16px; padding:14px; }}
+.compare-kpi .head {{ color: var(--muted); font-size:12px; margin-bottom:8px; }}
+.compare-kpi .line {{ display:flex; justify-content:space-between; gap:10px; font-size:13px; padding:3px 0; }}
+.compare-kpi .delta-pos {{ color: #0f766e; font-weight: 800; }}
+.compare-kpi .delta-neg {{ color: #b91c1c; font-weight: 800; }}
 @keyframes rise {{ from {{ transform: translateY(8px); opacity: 0; }} to {{ transform: translateY(0); opacity: 1; }} }}
 @media (max-width: 960px) {{
   .grid {{ grid-template-columns: 1fr; }}
@@ -634,6 +649,7 @@ th {{ color: var(--muted); font-weight: 600; }}
   .filters {{ grid-template-columns: 1fr; }}
   .bar-row {{ grid-template-columns: 120px 1fr 56px; }}
   .mini-grid {{ grid-template-columns: 1fr; }}
+  .compare-kpis {{ grid-template-columns: 1fr; }}
 }}
 </style>
 </head>
@@ -902,6 +918,12 @@ th {{ color: var(--muted); font-weight: 600; }}
             <tbody id="strategy-compare-rows"></tbody>
           </table>
         </div>
+      </div>
+      <div style="margin-top:12px;">
+        <div class="toolbar">
+          <div class="subtle-title" id="strategy-compare-kpi-title" style="margin:0;">{latest_vs_selected}</div>
+        </div>
+        <div id="strategy-compare-kpis" class="compare-kpis"></div>
       </div>
       <div style="margin-top:12px;">
         <div class="toolbar">
@@ -1313,6 +1335,7 @@ function buildStrategyCompare(rows) {{
           score_sum: 0,
           best_score: Number.NEGATIVE_INFINITY,
           pnl_sum: 0,
+          dd_sum: 0,
           sharpe_sum: 0,
         }});
       }}
@@ -1321,6 +1344,7 @@ function buildStrategyCompare(rows) {{
       cur.score_sum += Number(r.composite_score || 0);
       cur.best_score = Math.max(cur.best_score, Number(r.composite_score || 0));
       cur.pnl_sum += Number(r.pnl_ratio || 0);
+      cur.dd_sum += Number(r.max_drawdown || 0);
       cur.sharpe_sum += Number(r.sharpe || 0);
     }});
   return [...grouped.values()]
@@ -1331,6 +1355,7 @@ function buildStrategyCompare(rows) {{
       avg_score: r.runs > 0 ? r.score_sum / r.runs : 0,
       best_score: Number.isFinite(r.best_score) ? r.best_score : 0,
       avg_pnl_ratio: r.runs > 0 ? r.pnl_sum / r.runs : 0,
+      avg_max_drawdown: r.runs > 0 ? r.dd_sum / r.runs : 0,
       avg_sharpe: r.runs > 0 ? r.sharpe_sum / r.runs : 0,
     }}))
     .sort((a, b) => Number(b.best_score || 0) - Number(a.best_score || 0));
@@ -1364,6 +1389,7 @@ function parseLeaderboardRows(rows) {{
     pnl_ratio: Number(r.pnl_ratio || 0),
     max_drawdown: Number(r.max_drawdown || 0),
     sharpe: Number(r.sharpe || 0),
+    notes: r.notes || '',
   }}));
 }}
 
@@ -1382,6 +1408,13 @@ function inTimeRange(timestamp, range) {{
   const ts = Date.parse(timestamp);
   if (Number.isNaN(ts)) return false;
   return ts >= cutoff;
+}}
+
+function fmtDelta(value, isPct) {{
+  if (value == null || !Number.isFinite(value)) return '-';
+  const cls = value >= 0 ? 'delta-pos' : 'delta-neg';
+  const text = isPct ? fmtSignedPct(value) : ((value >= 0 ? '+' : '') + Number(value).toFixed(3));
+  return `<span class="${{cls}}">${{text}}</span>`;
 }}
 
 function renderStrategyComparison(text) {{
@@ -1456,6 +1489,7 @@ function renderStrategyComparison(text) {{
   const detailRows = filteredRegistryRows
     .filter((r) => comboKey(r.strategy_plugin || '-', r.portfolio_method || '-') === strategySelectionKey)
     .sort((a, b) => String(b.timestamp_utc || '').localeCompare(String(a.timestamp_utc || '')));
+  const selectedAgg = strategyCompareRows.find((r) => comboKey(r.strategy_plugin, r.portfolio_method) === strategySelectionKey) || null;
   selectedChip.textContent = `${{text.selected_combo}}: ${{strategySelectionKey.replace('|', ' / ')}}`;
   detailBody.innerHTML = detailRows.length === 0
     ? `<tr><td colspan="6" class="sub">No runs for selected combo</td></tr>`
@@ -1467,6 +1501,42 @@ function renderStrategyComparison(text) {{
       <td>${{Number(r.sharpe || 0).toFixed(3)}}</td>
       <td>${{esc(r.notes || '-')}}</td>
     </tr>`).join('');
+
+  const compareRoot = document.getElementById('strategy-compare-kpis');
+  const currentPnl = parseNum((summaryKv || {{}}).pnl_ratio);
+  const currentSharpe = parseNum((summaryKv || {{}}).sharpe);
+  const currentDd = parseNum((summaryKv || {{}}).max_drawdown);
+  const compareItems = [
+    {{
+      title: text.kpi_pnl_ratio,
+      current: currentPnl,
+      selected: selectedAgg ? Number(selectedAgg.avg_pnl_ratio || 0) : null,
+      isPct: true,
+    }},
+    {{
+      title: text.kpi_sharpe,
+      current: currentSharpe,
+      selected: selectedAgg ? Number(selectedAgg.avg_sharpe || 0) : null,
+      isPct: false,
+    }},
+    {{
+      title: text.kpi_max_drawdown,
+      current: currentDd,
+      selected: selectedAgg ? Number(selectedAgg.avg_max_drawdown || 0) : null,
+      isPct: true,
+    }},
+  ];
+  compareRoot.innerHTML = compareItems.map((item) => {{
+    const delta = (item.current != null && item.selected != null) ? (item.current - item.selected) : null;
+    const currentText = item.isPct ? fmtPct(item.current) : (item.current == null ? '-' : Number(item.current).toFixed(3));
+    const selectedText = item.isPct ? fmtPct(item.selected) : (item.selected == null ? '-' : Number(item.selected).toFixed(3));
+    return `<div class="compare-kpi">
+      <div class="head">${{esc(item.title)}}</div>
+      <div class="line"><span>${{esc(text.current_label)}}</span><strong>${{currentText}}</strong></div>
+      <div class="line"><span>${{esc(text.selected_label)}}</span><strong>${{selectedText}}</strong></div>
+      <div class="line"><span>${{esc(text.delta_label)}}</span>${{fmtDelta(delta, item.isPct)}}</div>
+    </div>`;
+  }}).join('');
 }}
 
 function renderPublicLeaderboard(text) {{
@@ -1859,6 +1929,7 @@ function applyLanguage(lang) {{
   document.getElementById('strategy-th-best-score').textContent = text.best_score;
   document.getElementById('strategy-th-avg-pnl').textContent = text.avg_pnl_short;
   document.getElementById('strategy-th-avg-sharpe').textContent = text.avg_sharpe;
+  document.getElementById('strategy-compare-kpi-title').textContent = text.latest_vs_selected;
   document.getElementById('strategy-details-title').textContent = text.run_details;
   document.getElementById('strategy-detail-time').textContent = text.time_label;
   document.getElementById('strategy-detail-command').textContent = text.command_label;
@@ -2262,6 +2333,7 @@ refreshFromFiles();
         avg_sharpe = text.avg_sharpe,
         top_runs = text.top_runs,
         composite_score = text.composite_score,
+        latest_vs_selected = text.latest_vs_selected,
         run_details = text.run_details,
         time_label = text.time_label,
         notes_label = text.notes_label,
@@ -2837,6 +2909,8 @@ fn build_strategy_compare_rows(rows: &[RunRegistryEntry]) -> Vec<StrategyCompare
                 .map(|r| r.composite_score)
                 .fold(f64::NEG_INFINITY, f64::max);
             let avg_pnl_ratio = group.iter().map(|r| r.pnl_ratio).sum::<f64>() / runs.max(1) as f64;
+            let avg_max_drawdown =
+                group.iter().map(|r| r.max_drawdown).sum::<f64>() / runs.max(1) as f64;
             let avg_sharpe = group.iter().map(|r| r.sharpe).sum::<f64>() / runs.max(1) as f64;
             StrategyCompareRowUi {
                 strategy_plugin,
@@ -2845,6 +2919,7 @@ fn build_strategy_compare_rows(rows: &[RunRegistryEntry]) -> Vec<StrategyCompare
                 avg_score,
                 best_score,
                 avg_pnl_ratio,
+                avg_max_drawdown,
                 avg_sharpe,
             }
         })
