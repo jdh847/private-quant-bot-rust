@@ -2370,6 +2370,7 @@ fn render_share_dashboard(
         .map(|r| r.market.clone())
         .collect::<Vec<_>>()
         .join(" / ");
+    let generated_at = chrono::Utc::now().format("%Y-%m-%d %H:%M UTC").to_string();
 
     let top_combo_html = if let Some(row) = top_combo {
         format!(
@@ -2439,11 +2440,15 @@ fn render_share_dashboard(
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>{title} Share</title>
 <style>
+html, body {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
 body {{ margin:0; font-family:"Avenir Next","Helvetica Neue",sans-serif; color:#102033; background:
   radial-gradient(900px 500px at 10% 10%, rgba(245,158,11,.18), transparent 60%),
   radial-gradient(900px 600px at 85% 15%, rgba(2,132,199,.16), transparent 58%),
   linear-gradient(180deg, #fffaf0 0%, #f0fdf4 100%); }}
 .wrap {{ max-width: 1180px; margin: 0 auto; padding: 28px 18px 36px; }}
+.export-bar {{ position: sticky; top: 0; z-index: 10; display:flex; align-items:center; justify-content:space-between; gap:12px; padding: 10px 0 16px; }}
+.export-actions {{ display:flex; gap:10px; flex-wrap:wrap; }}
+.export-btn {{ border:1px solid rgba(15,23,42,.10); background: rgba(255,255,255,.82); color:#102033; border-radius: 999px; padding: 10px 14px; font-size: 13px; font-weight: 700; text-decoration:none; cursor:pointer; }}
 .hero {{ display:grid; grid-template-columns: 1.25fr .95fr; gap:16px; }}
 .panel {{ background: rgba(255,255,255,.86); border:1px solid rgba(15,23,42,.10); border-radius: 24px; padding: 18px; box-shadow: 0 18px 40px rgba(15,23,42,.08); }}
 .eyebrow {{ display:inline-flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }}
@@ -2456,9 +2461,19 @@ body {{ margin:0; font-family:"Avenir Next","Helvetica Neue",sans-serif; color:#
 .v {{ font-size: 24px; font-weight: 900; margin-top: 6px; }}
 .grid {{ display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:16px; margin-top:16px; }}
 .section-title {{ font-size: 16px; font-weight: 800; margin-bottom: 10px; }}
+.footer-note {{ color: rgba(16,32,51,.58); font-size: 12px; margin-top: 14px; }}
 table {{ width:100%; border-collapse: collapse; font-size: 13px; }}
 th, td {{ text-align:left; padding:8px; border-bottom:1px solid rgba(15,23,42,.08); }}
 th {{ color: rgba(16,32,51,.58); }}
+@page {{ size: A4 landscape; margin: 10mm; }}
+@media print {{
+  body {{ background: #ffffff; }}
+  .export-bar {{ display:none; }}
+  .wrap {{ max-width: none; padding: 0; }}
+  .panel {{ box-shadow:none; background:#fff; break-inside: avoid; }}
+  .hero, .grid {{ gap: 10px; }}
+  .title {{ font-size: 30px; }}
+}}
 @media (max-width: 960px) {{
   .hero, .grid, .metrics {{ grid-template-columns: 1fr; }}
 }}
@@ -2466,6 +2481,13 @@ th {{ color: rgba(16,32,51,.58); }}
 </head>
 <body>
   <div class="wrap">
+    <div class="export-bar">
+      <div class="sub">share-ready snapshot | generated {generated_at} | paper-only</div>
+      <div class="export-actions">
+        <button id="print-btn" class="export-btn" type="button">Print / Save PDF</button>
+        <a class="export-btn" href="./dashboard.html">Open Full Dashboard</a>
+      </div>
+    </div>
     <div class="hero">
       <section class="panel">
         <div class="eyebrow">
@@ -2504,9 +2526,16 @@ th {{ color: rgba(16,32,51,.58); }}
         <div class="sub">{generated_from}</div>
         <div class="sub" style="margin-top:8px;">dashboard.html</div>
         <div class="sub">dashboard_share.html</div>
+        <div class="footer-note">Tip: use browser Print to export a clean PDF.</div>
       </section>
     </div>
   </div>
+<script>
+const printBtn = document.getElementById('print-btn');
+if (printBtn) {{
+  printBtn.addEventListener('click', () => window.print());
+}}
+</script>
 </body>
 </html>"#,
         lang = language.html_lang(),
@@ -2540,6 +2569,7 @@ th {{ color: rgba(16,32,51,.58); }}
         latest_rolling_factor = escape_html(&latest_rolling_factor),
         latest_rolling_horizon = escape_html(&latest_rolling_horizon),
         latest_rolling_ic = escape_html(&latest_rolling_ic),
+        generated_at = escape_html(&generated_at),
         pass = pass,
         warn = warn,
         fail = fail,
@@ -2943,6 +2973,8 @@ mod tests {
         assert!(share_html.contains("dashboard_share.html"));
         assert!(share_html.contains("Public Leaderboard"));
         assert!(share_html.contains("paper-only"));
+        assert!(share_html.contains("@media print"));
+        assert!(share_html.contains("window.print()"));
     }
 
     fn make_temp_output_dir(prefix: &str) -> PathBuf {
