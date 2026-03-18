@@ -24,9 +24,19 @@ pub struct CompareField {
 pub struct CompareReport {
     pub baseline_dir: String,
     pub candidate_dir: String,
+    pub winner_summary: WinnerSummary,
     pub metric_rows: Vec<CompareField>,
     pub audit_rows: Vec<CompareField>,
     pub data_quality_rows: Vec<CompareField>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WinnerSummary {
+    pub winner: String,
+    pub score: i32,
+    pub wins: Vec<String>,
+    pub losses: Vec<String>,
+    pub neutral: Vec<String>,
 }
 
 pub fn compare_runs(req: &CompareRequest) -> Result<CompareReport> {
@@ -39,10 +49,12 @@ pub fn compare_runs(req: &CompareRequest) -> Result<CompareReport> {
     let metric_rows = build_rows(&baseline.summary_kv, &candidate.summary_kv);
     let audit_rows = build_rows(&baseline.audit_kv, &candidate.audit_kv);
     let data_quality_rows = build_rows(&baseline.data_quality_kv, &candidate.data_quality_kv);
+    let winner_summary = build_winner_summary(&metric_rows);
 
     let report = CompareReport {
         baseline_dir: req.baseline_dir.display().to_string(),
         candidate_dir: req.candidate_dir.display().to_string(),
+        winner_summary,
         metric_rows,
         audit_rows,
         data_quality_rows,
@@ -252,6 +264,72 @@ fn build_rows(
         .collect()
 }
 
+fn build_winner_summary(metric_rows: &[CompareField]) -> WinnerSummary {
+    let mut score = 0i32;
+    let mut wins = Vec::new();
+    let mut losses = Vec::new();
+    let mut neutral = Vec::new();
+
+    for (key, higher_is_better) in [
+        ("end_equity", true),
+        ("pnl_ratio", true),
+        ("sharpe", true),
+        ("sortino", true),
+        ("calmar", true),
+        ("trades", false),
+        ("rejections", false),
+        ("max_drawdown", false),
+    ] {
+        let Some(row) = metric_rows.iter().find(|row| row.key == key) else {
+            continue;
+        };
+        let base = row.baseline.parse::<f64>().ok();
+        let cand = row.candidate.parse::<f64>().ok();
+        let Some(base) = base else {
+            neutral.push(format!("{key}: n/a"));
+            continue;
+        };
+        let Some(cand) = cand else {
+            neutral.push(format!("{key}: n/a"));
+            continue;
+        };
+        let delta = cand - base;
+        if delta.abs() < 1e-12 {
+            neutral.push(format!("{key}: flat"));
+            continue;
+        }
+        let candidate_better = if higher_is_better {
+            delta > 0.0
+        } else {
+            delta < 0.0
+        };
+        let summary = format!("{key}: {} -> {}", row.baseline, row.candidate);
+        if candidate_better {
+            score += 1;
+            wins.push(summary);
+        } else {
+            score -= 1;
+            losses.push(summary);
+        }
+    }
+
+    let winner = if score > 0 {
+        "candidate".to_string()
+    } else if score < 0 {
+        "baseline".to_string()
+    } else {
+        "tie".to_string()
+    };
+
+    WinnerSummary {
+        winner,
+        score,
+        wins,
+        losses,
+        neutral,
+    }
+}
+
 fn write_compare_outputs(output_dir: &Path, report: &CompareReport) -> Result<()> {
     fs::write(
         output_dir.join("compare_report.json"),
@@ -273,7 +351,33 @@ fn render_markdown(report: &CompareReport) -> String {
     let mut out = String::new();
     out.push_str("# Run Compare Report\n\n");
     out.push_str(&format!("- baseline: `{}`\n", report.baseline_dir));
-    out.push_str(&format!("- candidate: `{}`\n\n", report.candidate_dir));
+    out.push_str(&format!("- candidate: `{}`\n", report.candidate_dir));
+    out.push_str(&format!(
+        "- winner: `{}` (score={})\n\n",
+        report.winner_summary.winner, report.winner_summary.score
+    ));
+    out.push_str("## Winner Summary\n\n");
+    if !report.winner_summary.wins.is_empty() {
+        out.push_str("### Candidate Wins\n\n");
+        for item in &report.winner_summary.wins {
+            out.push_str(&format!("- {item}\n"));
+        }
+        out.push('\n');
+    }
+    if !report.winner_summary.losses.is_empty() {
+        out.push_str("### Candidate Losses\n\n");
+        for item in &report.winner_summary.losses {
+            out.push_str(&format!("- {item}\n"));
+        }
+        out.push('\n');
+    }
+    if !report.winner_summary.neutral.is_empty() {
+        out.push_str("### Neutral\n\n");
+        for item in &report.winner_summary.neutral {
+            out.push_str(&format!("- {item}\n"));
+        }
+        out.push('\n');
+    }
     out.push_str(&render_md_table("Metrics", &report.metric_rows));
     out.push('\n');
     out.push_str(&render_md_table("Audit", &report.audit_rows));
@@ -303,6 +407,9 @@ fn render_html(report: &CompareReport) -> String {
     let metrics = render_html_rows(&report.metric_rows);
     let audit = render_html_rows(&report.audit_rows);
     let dq = render_html_rows(&report.data_quality_rows);
+    let wins_html = render_summary_items(&report.winner_summary.wins);
+    let losses_html = render_summary_items(&report.winner_summary.losses);
+    let neutral_html = render_summary_items(&report.winner_summary.neutral);
     format!(
         r#"<!doctype html>
 <html lang="en">
@@ -335,7 +442,12 @@ body {{
 .title {{ font-size: 32px; font-weight: 800; }}
 .sub {{ color: var(--muted); margin-top: 8px; }}
 .grid {{ display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }}
+.summary-grid {{ display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; margin-top:16px; }}
 .panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 16px; overflow: auto; }}
+.winner-card {{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; padding:14px 16px; border-radius:16px; background: rgba(255,255,255,0.72); border:1px solid var(--line); }}
+.winner-chip {{ display:inline-flex; align-items:center; gap:8px; border-radius:999px; padding:8px 12px; background: rgba(15,118,110,0.12); color: var(--accent); font-weight: 800; }}
+.summary-list {{ margin: 0; padding-left: 18px; color: var(--ink); }}
+.summary-list li {{ margin: 6px 0; }}
 table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
 th, td {{ text-align: left; padding: 10px 8px; border-bottom: 1px solid rgba(16,32,24,0.08); vertical-align: top; }}
 th {{ color: var(--muted); font-weight: 700; }}
@@ -349,8 +461,20 @@ th {{ color: var(--muted); font-weight: 700; }}
       <div class="title">Run Compare Report</div>
       <div class="sub">baseline: {baseline}</div>
       <div class="sub">candidate: {candidate}</div>
+      <div class="winner-card">
+        <div>
+          <div class="sub">winner summary</div>
+          <div style="font-size:24px; font-weight:800; margin-top:4px;">{winner}</div>
+        </div>
+        <div class="winner-chip">score {score}</div>
+      </div>
     </div>
     <div class="grid">
+      <section class="summary-grid">
+        <div class="panel"><h2>Candidate Wins</h2>{wins_html}</div>
+        <div class="panel"><h2>Candidate Losses</h2>{losses_html}</div>
+        <div class="panel"><h2>Neutral</h2>{neutral_html}</div>
+      </section>
       <section class="panel"><h2>Metrics</h2><table><thead><tr><th>key</th><th>baseline</th><th>candidate</th><th>changed</th></tr></thead><tbody>{metrics}</tbody></table></section>
       <section class="panel"><h2>Audit</h2><table><thead><tr><th>key</th><th>baseline</th><th>candidate</th><th>changed</th></tr></thead><tbody>{audit}</tbody></table></section>
       <section class="panel"><h2>Data Quality</h2><table><thead><tr><th>key</th><th>baseline</th><th>candidate</th><th>changed</th></tr></thead><tbody>{dq}</tbody></table></section>
@@ -360,6 +484,11 @@ th {{ color: var(--muted); font-weight: 700; }}
 </html>"#,
         baseline = escape_html(&report.baseline_dir),
         candidate = escape_html(&report.candidate_dir),
+        winner = escape_html(&report.winner_summary.winner),
+        score = report.winner_summary.score,
+        wins_html = wins_html,
+        losses_html = losses_html,
+        neutral_html = neutral_html,
         metrics = metrics,
         audit = audit,
         dq = dq
@@ -380,6 +509,18 @@ fn render_html_rows(rows: &[CompareField]) -> String {
             changed
         ));
     }
+    out
+}
+
+fn render_summary_items(items: &[String]) -> String {
+    if items.is_empty() {
+        return "<div class=\"sub\">none</div>".to_string();
+    }
+    let mut out = String::from("<ul class=\"summary-list\">");
+    for item in items {
+        out.push_str(&format!("<li>{}</li>", escape_html(item)));
+    }
+    out.push_str("</ul>");
     out
 }
 
@@ -425,7 +566,7 @@ mod tests {
         fs::create_dir_all(&cand).expect("mkdir cand");
 
         fs::write(base.join("summary.txt"), "end_equity=100\ntrades=1\n").expect("summary");
-        fs::write(cand.join("summary.txt"), "end_equity=120\ntrades=2\n").expect("summary");
+        fs::write(cand.join("summary.txt"), "end_equity=120\ntrades=1\n").expect("summary");
         fs::write(
             base.join("audit_snapshot.json"),
             r#"{"config_sha256":"aaa","strategy_plugin":"x","portfolio_method":"risk_parity","stats":{"end_equity":100,"trades":1,"rejections":0},"markets":[{"market":"US","data_file":{"sha256":"111"}}]}"#,
@@ -455,8 +596,13 @@ mod tests {
         .expect("compare");
 
         assert!(!report.metric_rows.is_empty());
+        assert_eq!(report.winner_summary.winner, "candidate");
+        assert!(!report.winner_summary.wins.is_empty());
         assert!(out.join("compare_report.md").exists());
         assert!(out.join("compare_report.html").exists());
         assert!(out.join("compare_report.json").exists());
+        let html = fs::read_to_string(out.join("compare_report.html")).expect("html");
+        assert!(html.contains("winner summary"));
+        assert!(html.contains("Candidate Wins"));
     }
 }

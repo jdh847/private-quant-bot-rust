@@ -76,6 +76,7 @@ Detailed mapping: `docs/GITHUB_LEARNINGS.md`
 - Dashboard run-to-run compare shortcut (pick two runs and copy a ready-to-run `compare` command)
 - Dashboard recent compare summary with links back to the latest discovered `compare_report.html` / `.json`
 - Strategy comparison market filter (`ALL` / per-market using registry `markets`)
+- Compare reports now include a winner summary (candidate wins / losses / tie) and the dashboard surfaces it
 - Strategy Plugin SDK generator + validator (`sdk-init` / `sdk-check`)
 - SDK runtime auto-registration (`sdk-register`) so plugin id can be used directly in `--strategy-plugin`
 

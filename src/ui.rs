@@ -131,6 +131,8 @@ struct CompareReportCompat {
     #[serde(default)]
     candidate_dir: String,
     #[serde(default)]
+    winner_summary: CompareWinnerSummaryCompat,
+    #[serde(default)]
     metric_rows: Vec<CompareFieldCompat>,
     #[serde(default)]
     audit_rows: Vec<CompareFieldCompat>,
@@ -144,6 +146,20 @@ struct CompareFieldCompat {
     changed: bool,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+struct CompareWinnerSummaryCompat {
+    #[serde(default)]
+    winner: String,
+    #[serde(default)]
+    score: i32,
+    #[serde(default)]
+    wins: Vec<String>,
+    #[serde(default)]
+    losses: Vec<String>,
+    #[serde(default)]
+    neutral: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct RecentCompareUi {
     output_dir: String,
@@ -154,6 +170,11 @@ struct RecentCompareUi {
     metric_changes: usize,
     audit_changes: usize,
     data_quality_changes: usize,
+    winner: String,
+    winner_score: i32,
+    winner_wins: usize,
+    winner_losses: usize,
+    winner_neutral: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -302,6 +323,10 @@ struct DashboardI18nText {
     audit_changes_label: String,
     data_quality_changes_label: String,
     compare_not_found: String,
+    winner_summary: String,
+    candidate_wins: String,
+    candidate_losses: String,
+    compare_tie: String,
     research: String,
     decay_overview: String,
     rolling_ic: String,
@@ -416,6 +441,10 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         audit_changes_label: t.audit_changes_label.to_string(),
         data_quality_changes_label: t.data_quality_changes_label.to_string(),
         compare_not_found: t.compare_not_found.to_string(),
+        winner_summary: t.winner_summary.to_string(),
+        candidate_wins: t.candidate_wins.to_string(),
+        candidate_losses: t.candidate_losses.to_string(),
+        compare_tie: t.compare_tie.to_string(),
         research: t.research.to_string(),
         decay_overview: t.decay_overview.to_string(),
         rolling_ic: t.rolling_ic.to_string(),
@@ -1679,6 +1708,14 @@ function renderRecentCompare(text) {{
       <div class="sub"><strong>${{esc(text.baseline_run)}}:</strong> ${{esc(recentCompare.baseline_dir || '-')}}</div>
       <div class="sub"><strong>${{esc(text.candidate_run)}}:</strong> ${{esc(recentCompare.candidate_dir || '-')}}</div>
       <div class="sub"><strong>${{esc(text.output_dir_label)}}:</strong> ${{esc(recentCompare.output_dir || '-')}}</div>
+      <div class="sub" style="margin-top:8px;">
+        <strong>${{esc(text.winner_summary)}}:</strong>
+        ${{esc(recentCompare.winner === 'candidate' ? text.candidate_wins : (recentCompare.winner === 'baseline' ? text.candidate_losses : text.compare_tie))}}
+        | score=${{Number(recentCompare.winner_score || 0)}}
+        | W=${{Number(recentCompare.winner_wins || 0)}}
+        | L=${{Number(recentCompare.winner_losses || 0)}}
+        | N=${{Number(recentCompare.winner_neutral || 0)}}
+      </div>
       <div class="sub" style="margin-top:8px;">
         ${{esc(text.metric_changes_label)}}=${{Number(recentCompare.metric_changes || 0)}} |
         ${{esc(text.audit_changes_label)}}=${{Number(recentCompare.audit_changes || 0)}} |
@@ -3335,6 +3372,11 @@ fn discover_recent_compare(output_dir: &Path) -> Option<RecentCompareUi> {
             .iter()
             .filter(|r| r.changed)
             .count(),
+        winner: report.winner_summary.winner,
+        winner_score: report.winner_summary.score,
+        winner_wins: report.winner_summary.wins.len(),
+        winner_losses: report.winner_summary.losses.len(),
+        winner_neutral: report.winner_summary.neutral.len(),
     })
 }
 
@@ -3736,6 +3778,7 @@ mod tests {
             r#"{
   "baseline_dir":"outputs_rust/run_a",
   "candidate_dir":"outputs_rust/run_b",
+  "winner_summary":{"winner":"candidate","score":2,"wins":["pnl_ratio: 0.1 -> 0.2"],"losses":["max_drawdown: 0.1 -> 0.2"],"neutral":["trades: flat"]},
   "metric_rows":[{"changed":true},{"changed":false}],
   "audit_rows":[{"changed":true}],
   "data_quality_rows":[{"changed":false},{"changed":true}]
@@ -3782,6 +3825,8 @@ mod tests {
         assert!(html.contains("cargo run --bin compare -- --baseline-dir"));
         assert!(html.contains("compare_demo/compare_report.html"));
         assert!(html.contains("Metric Changes"));
+        assert!(html.contains("Winner Summary"));
+        assert!(html.contains("Candidate Wins"));
         assert!(html.contains("momentum"));
         assert!(html.contains("researchRollingRows"));
         assert!(html.contains("research-decay-chart"));
