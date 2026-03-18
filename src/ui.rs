@@ -155,6 +155,20 @@ struct StrategyCompareRowUi {
     avg_sharpe: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LeaderboardRowUi {
+    rank: usize,
+    source: String,
+    command: String,
+    scenario: String,
+    strategy_plugin: String,
+    portfolio_method: String,
+    score: f64,
+    pnl_ratio: f64,
+    max_drawdown: f64,
+    sharpe: f64,
+}
+
 #[derive(Debug, Serialize)]
 struct DashboardI18n {
     en: DashboardI18nText,
@@ -211,8 +225,14 @@ struct DashboardI18nText {
     reason: String,
     factors: String,
     strategy_comparison: String,
+    public_leaderboard: String,
     plugin: String,
     method: String,
+    source: String,
+    scenario: String,
+    score: String,
+    command_label: String,
+    rank: String,
     avg_score: String,
     best_score: String,
     avg_pnl_short: String,
@@ -292,8 +312,14 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         reason: t.reason.to_string(),
         factors: t.factors.to_string(),
         strategy_comparison: t.strategy_comparison.to_string(),
+        public_leaderboard: t.public_leaderboard.to_string(),
         plugin: t.plugin.to_string(),
         method: t.method.to_string(),
+        source: t.source.to_string(),
+        scenario: t.scenario.to_string(),
+        score: t.score.to_string(),
+        command_label: t.command_label.to_string(),
+        rank: t.rank.to_string(),
         avg_score: t.avg_score.to_string(),
         best_score: t.best_score.to_string(),
         avg_pnl_short: t.avg_pnl_short.to_string(),
@@ -344,10 +370,18 @@ pub fn build_dashboard_with_language(
     let audit_summary_path = output_dir.join("audit_snapshot_summary.txt");
     let registry_root = infer_registry_root(output_dir);
     let registry_path = registry_root.join("run_registry.csv");
+    let leaderboard_path = registry_root
+        .join("leaderboard")
+        .join("leaderboard_public.csv");
     let registry_refresh_path = if registry_root == output_dir {
         "./run_registry.csv".to_string()
     } else {
         "../run_registry.csv".to_string()
+    };
+    let leaderboard_refresh_path = if registry_root == output_dir {
+        "./leaderboard/leaderboard_public.csv".to_string()
+    } else {
+        "../leaderboard/leaderboard_public.csv".to_string()
     };
     let research_summary_path = if output_dir.join("research_report_summary.txt").exists() {
         output_dir.join("research_report_summary.txt")
@@ -427,6 +461,7 @@ pub fn build_dashboard_with_language(
         read_research_report(&research_json_path);
     let registry_rows = read_registry_rows(&registry_path)?;
     let strategy_compare_rows = build_strategy_compare_rows(&registry_rows);
+    let leaderboard_rows = read_leaderboard_rows(&leaderboard_path)?;
 
     let trade_json = serde_json::to_string(&trade_rows)?;
     let rejection_json = serde_json::to_string(&rejection_rows)?;
@@ -436,6 +471,7 @@ pub fn build_dashboard_with_language(
     let research_summary_kv_json = serde_json::to_string(&research_summary_kv)?;
     let registry_rows_json = serde_json::to_string(&registry_rows)?;
     let strategy_compare_json = serde_json::to_string(&strategy_compare_rows)?;
+    let leaderboard_rows_json = serde_json::to_string(&leaderboard_rows)?;
     let research_regime_json = serde_json::to_string(&research_regime_rows)?;
     let research_decay_json = serde_json::to_string(&research_decay_rows)?;
     let research_rolling_json = serde_json::to_string(&research_rolling_rows)?;
@@ -443,6 +479,7 @@ pub fn build_dashboard_with_language(
     let audit_markets_json = serde_json::to_string(&audit_markets)?;
     let audit_config_sha_json = serde_json::to_string(&audit_config_sha)?;
     let registry_refresh_path_json = serde_json::to_string(&registry_refresh_path)?;
+    let leaderboard_refresh_path_json = serde_json::to_string(&leaderboard_refresh_path)?;
     let text = dashboard_text(language);
     let text_en = dashboard_text(Language::En);
     let text_zh = dashboard_text(Language::Zh);
@@ -835,6 +872,36 @@ th {{ color: var(--muted); font-weight: 600; }}
         </div>
       </div>
     </section>
+
+    <section class="panel" data-delay="5" style="margin-top: 16px;">
+      <div class="toolbar">
+        <h3 id="public-leaderboard-title" style="margin:0;">{public_leaderboard}</h3>
+        <span class="chip" id="public-leaderboard-stats"></span>
+      </div>
+      <div class="toolbar" style="margin-bottom:10px;">
+        <label class="pill"><span id="leaderboard-source-label">{source}</span>
+          <select id="leaderboard-source-select" class="select"></select>
+        </label>
+      </div>
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th id="leaderboard-th-rank">{rank}</th>
+              <th id="leaderboard-th-source">{source}</th>
+              <th id="leaderboard-th-command">{command_label}</th>
+              <th id="leaderboard-th-scenario">{scenario}</th>
+              <th id="leaderboard-th-plugin">{plugin}</th>
+              <th id="leaderboard-th-method">{method}</th>
+              <th id="leaderboard-th-score">{score}</th>
+              <th id="leaderboard-th-pnl">{avg_pnl_short}</th>
+              <th id="leaderboard-th-sharpe">{avg_sharpe}</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboard-rows"></tbody>
+        </table>
+      </div>
+    </section>
   </div>
 
 <script>
@@ -847,6 +914,7 @@ let summaryKv = {summary_kv_json};
 let factorKv = {factor_kv_json};
 let registryRows = {registry_rows_json};
 let strategyCompareRows = {strategy_compare_json};
+let leaderboardRows = {leaderboard_rows_json};
 let researchSummaryKv = {research_summary_kv_json};
 let researchRegimeRows = {research_regime_json};
 let researchDecayRows = {research_decay_json};
@@ -855,6 +923,7 @@ let dataQualityRows = {data_quality_json};
 let auditMarkets = {audit_markets_json};
 let auditConfigSha = {audit_config_sha_json};
 const registryRefreshPath = {registry_refresh_path_json};
+const leaderboardRefreshPath = {leaderboard_refresh_path_json};
 const i18n = {i18n_json};
 const defaultLang = {default_lang_json};
 
@@ -1182,6 +1251,21 @@ function buildStrategyCompare(rows) {{
     .sort((a, b) => Number(b.best_score || 0) - Number(a.best_score || 0));
 }}
 
+function parseLeaderboardRows(rows) {{
+  return (rows || []).map((r) => ({{
+    rank: Number(r.rank || 0),
+    source: r.source || '',
+    command: r.command || '',
+    scenario: r.scenario || '',
+    strategy_plugin: r.strategy_plugin || '',
+    portfolio_method: r.portfolio_method || '',
+    score: Number(r.score || 0),
+    pnl_ratio: Number(r.pnl_ratio || 0),
+    max_drawdown: Number(r.max_drawdown || 0),
+    sharpe: Number(r.sharpe || 0),
+  }}));
+}}
+
 function renderStrategyComparison(text) {{
   strategyCompareRows = buildStrategyCompare(registryRows);
   const chart = document.getElementById('strategy-compare-chart');
@@ -1219,6 +1303,34 @@ function renderStrategyComparison(text) {{
   const combos = strategyCompareRows.length;
   const runs = (registryRows || []).filter((r) => r.strategy_plugin || r.portfolio_method).length;
   stats.textContent = `${{runs}} runs | ${{combos}} combos`;
+}}
+
+function renderPublicLeaderboard(text) {{
+  const sourceSel = document.getElementById('leaderboard-source-select');
+  const prev = sourceSel.value || 'ALL';
+  const sources = [...new Set((leaderboardRows || []).map((r) => r.source).filter(Boolean))].sort();
+  const opts = ['ALL', ...sources];
+  sourceSel.innerHTML = opts.map((s) => `<option value="${{esc(s)}}">${{esc(s)}}</option>`).join('');
+  sourceSel.value = opts.includes(prev) ? prev : 'ALL';
+
+  const selected = sourceSel.value;
+  const filtered = (leaderboardRows || []).filter((r) => selected === 'ALL' || r.source === selected);
+  document.getElementById('leaderboard-rows').innerHTML = filtered.length === 0
+    ? `<tr><td colspan="9" class="sub">leaderboard_public.csv not found</td></tr>`
+    : filtered.slice(0, 12).map((r) => `<tr>
+      <td>${{r.rank}}</td>
+      <td>${{esc(r.source)}}</td>
+      <td>${{esc(r.command)}}</td>
+      <td>${{esc(r.scenario || '-')}}</td>
+      <td>${{esc(r.strategy_plugin || '-')}}</td>
+      <td>${{esc(r.portfolio_method || '-')}}</td>
+      <td>${{Number(r.score || 0).toFixed(3)}}</td>
+      <td>${{fmtSignedPct(Number(r.pnl_ratio || 0))}}</td>
+      <td>${{Number(r.sharpe || 0).toFixed(3)}}</td>
+    </tr>`).join('');
+
+  document.getElementById('public-leaderboard-stats').textContent =
+    `${{(leaderboardRows || []).length}} rows | source=${{selected}}`;
 }}
 
 function researchCardValue(key) {{
@@ -1539,6 +1651,17 @@ function applyLanguage(lang) {{
   document.getElementById('strategy-th-best-score').textContent = text.best_score;
   document.getElementById('strategy-th-avg-pnl').textContent = text.avg_pnl_short;
   document.getElementById('strategy-th-avg-sharpe').textContent = text.avg_sharpe;
+  document.getElementById('public-leaderboard-title').textContent = text.public_leaderboard;
+  document.getElementById('leaderboard-source-label').textContent = text.source;
+  document.getElementById('leaderboard-th-rank').textContent = text.rank;
+  document.getElementById('leaderboard-th-source').textContent = text.source;
+  document.getElementById('leaderboard-th-command').textContent = text.command_label;
+  document.getElementById('leaderboard-th-scenario').textContent = text.scenario;
+  document.getElementById('leaderboard-th-plugin').textContent = text.plugin;
+  document.getElementById('leaderboard-th-method').textContent = text.method;
+  document.getElementById('leaderboard-th-score').textContent = text.score;
+  document.getElementById('leaderboard-th-pnl').textContent = text.avg_pnl_short;
+  document.getElementById('leaderboard-th-sharpe').textContent = text.avg_sharpe;
   document.getElementById('research-title').textContent = text.research;
   document.getElementById('decay-chart-title').textContent = text.decay_overview;
   document.getElementById('decay-title').textContent = text.decay_overview;
@@ -1578,6 +1701,7 @@ function applyLanguage(lang) {{
   renderRejections();
   renderFactors(text);
   renderStrategyComparison(text);
+  renderPublicLeaderboard(text);
   renderResearch(text);
   renderDataQuality();
   renderAudit();
@@ -1662,7 +1786,7 @@ function renderAudit() {{
 
 async function refreshFromFiles() {{
   try {{
-    const [summaryResp, equityResp, tradesResp, rejResp, factorResp, auditResp, researchSummaryResp, researchSummaryResp2, researchJsonResp, researchJsonResp2, dqResp, dq2Resp, dqReportResp, auditJsonResp, registryResp] =
+    const [summaryResp, equityResp, tradesResp, rejResp, factorResp, auditResp, researchSummaryResp, researchSummaryResp2, researchJsonResp, researchJsonResp2, dqResp, dq2Resp, dqReportResp, auditJsonResp, registryResp, leaderboardResp] =
       await Promise.all([
       fetch('./summary.txt', {{ cache: 'no-store' }}),
       fetch('./equity_curve.csv', {{ cache: 'no-store' }}),
@@ -1679,6 +1803,7 @@ async function refreshFromFiles() {{
       fetch('./data_quality_report.csv', {{ cache: 'no-store' }}).catch(() => null),
       fetch('./audit_snapshot.json', {{ cache: 'no-store' }}).catch(() => null),
       fetch(registryRefreshPath, {{ cache: 'no-store' }}).catch(() => null),
+      fetch(leaderboardRefreshPath, {{ cache: 'no-store' }}).catch(() => null),
     ]);
 
     if (summaryResp.ok) {{
@@ -1800,6 +1925,10 @@ async function refreshFromFiles() {{
       const csv = await registryResp.text();
       registryRows = parseRegistryRows(parseCsv(csv));
     }}
+    if (leaderboardResp && leaderboardResp.ok) {{
+      const csv = await leaderboardResp.text();
+      leaderboardRows = parseLeaderboardRows(parseCsv(csv));
+    }}
 
     const t = getText(langSwitch.value);
     liveStatus.textContent = t.live_on;
@@ -1828,6 +1957,7 @@ document.getElementById('research-decay-scope').addEventListener('change', () =>
 document.getElementById('research-decay-metric').addEventListener('change', () => renderResearchCharts(getText(langSwitch.value)));
 document.getElementById('research-rolling-horizon-select').addEventListener('change', () => renderResearchCharts(getText(langSwitch.value)));
 document.getElementById('research-regime-market').addEventListener('change', () => renderRegime(getText(langSwitch.value)));
+document.getElementById('leaderboard-source-select').addEventListener('change', () => renderPublicLeaderboard(getText(langSwitch.value)));
 symbolInput.addEventListener('input', () => applyLanguage(langSwitch.value));
 marketSel.addEventListener('change', () => applyLanguage(langSwitch.value));
 sideSel.addEventListener('change', () => applyLanguage(langSwitch.value));
@@ -1873,8 +2003,14 @@ refreshFromFiles();
         reason = text.reason,
         factors = text.factors,
         strategy_comparison = text.strategy_comparison,
+        public_leaderboard = text.public_leaderboard,
         plugin = text.plugin,
         method = text.method,
+        source = text.source,
+        scenario = text.scenario,
+        score = text.score,
+        command_label = text.command_label,
+        rank = text.rank,
         avg_score = text.avg_score,
         best_score = text.best_score,
         avg_pnl_short = text.avg_pnl_short,
@@ -2211,6 +2347,18 @@ fn build_strategy_compare_rows(rows: &[RunRegistryEntry]) -> Vec<StrategyCompare
     out
 }
 
+fn read_leaderboard_rows(path: &Path) -> Result<Vec<LeaderboardRowUi>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    let mut rdr = csv::Reader::from_path(path)?;
+    for rec in rdr.deserialize() {
+        out.push(rec?);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -2282,14 +2430,22 @@ mod tests {
             "run_id,timestamp_utc,command,output_dir,strategy_plugin,portfolio_method,markets,primary_metric_name,primary_metric_value,composite_score,pnl_ratio,max_drawdown,sharpe,sortino,calmar,trades,rejections,notes\nrun-1,2026-01-02T00:00:00Z,run,outputs_rust,my_alpha,risk_parity,US|JP,end_equity,100.0,1.2345,0.1000,0.0500,1.2000,1.3000,1.4000,12,0,first\nrun-2,2026-01-03T00:00:00Z,run,outputs_rust,my_alpha,hrp,US|JP,end_equity,101.0,1.4567,0.1200,0.0400,1.5000,1.6000,1.7000,10,1,second\n",
         )
         .expect("write registry");
+        fs::create_dir_all(output_dir.join("leaderboard")).expect("leaderboard dir");
+        fs::write(
+            output_dir.join("leaderboard").join("leaderboard_public.csv"),
+            "rank,source,timestamp_utc,command,scenario,strategy_plugin,portfolio_method,score,pnl_ratio,max_drawdown,sharpe,notes\n1,registry,2026-01-03T00:00:00Z,run,default,my_alpha,hrp,1.4567,0.1200,0.0400,1.5000,top row\n2,research,,research,walk_forward,my_alpha,risk_parity,1.2222,0.0900,0.0500,1.2000,research row\n",
+        )
+        .expect("write leaderboard");
 
         let path =
             build_dashboard_with_language(&output_dir, Language::En).expect("build dashboard");
         let html = fs::read_to_string(path).expect("read dashboard");
         assert!(html.contains("Research"));
         assert!(html.contains("Strategy Comparison"));
+        assert!(html.contains("Public Leaderboard"));
         assert!(html.contains("researchDecayRows"));
         assert!(html.contains("registryRows"));
+        assert!(html.contains("leaderboardRows"));
         assert!(html.contains("momentum"));
         assert!(html.contains("researchRollingRows"));
         assert!(html.contains("research-decay-chart"));
