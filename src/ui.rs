@@ -78,6 +78,35 @@ struct AuditFileCompat {
     sha256: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FactorDecayRowUi {
+    scope: String,
+    factor: String,
+    horizon_days: usize,
+    observations: usize,
+    ic: f64,
+    top_quintile_avg_return: f64,
+    bottom_quintile_avg_return: f64,
+    long_short_spread: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RollingIcRowUi {
+    date: String,
+    factor: String,
+    horizon_days: usize,
+    observations: usize,
+    ic: f64,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct ResearchReportCompat {
+    #[serde(default)]
+    factor_decay_rows: Vec<FactorDecayRowUi>,
+    #[serde(default)]
+    rolling_ic_rows: Vec<RollingIcRowUi>,
+}
+
 #[derive(Debug, Serialize)]
 struct TradeRow {
     date: String,
@@ -153,6 +182,17 @@ struct DashboardI18nText {
     rejections: String,
     reason: String,
     factors: String,
+    research: String,
+    decay_overview: String,
+    rolling_ic: String,
+    folds: String,
+    avg_test_sharpe_short: String,
+    best_decay: String,
+    latest_rolling: String,
+    horizon_days: String,
+    ic_short: String,
+    spread: String,
+    scope: String,
     avg_selected_symbols: String,
     start: String,
     end: String,
@@ -208,6 +248,17 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         rejections: t.rejections.to_string(),
         reason: t.reason.to_string(),
         factors: t.factors.to_string(),
+        research: t.research.to_string(),
+        decay_overview: t.decay_overview.to_string(),
+        rolling_ic: t.rolling_ic.to_string(),
+        folds: t.folds.to_string(),
+        avg_test_sharpe_short: t.avg_test_sharpe_short.to_string(),
+        best_decay: t.best_decay.to_string(),
+        latest_rolling: t.latest_rolling.to_string(),
+        horizon_days: t.horizon_days.to_string(),
+        ic_short: t.ic_short.to_string(),
+        spread: t.spread.to_string(),
+        scope: t.scope.to_string(),
         avg_selected_symbols: t.avg_selected_symbols.to_string(),
         start: t.start.to_string(),
         end: t.end.to_string(),
@@ -234,6 +285,32 @@ pub fn build_dashboard_with_language(
     let rejections_path = output_dir.join("rejections.csv");
     let factor_summary_path = output_dir.join("factor_attribution_summary.txt");
     let audit_summary_path = output_dir.join("audit_snapshot_summary.txt");
+    let research_summary_path = if output_dir.join("research_report_summary.txt").exists() {
+        output_dir.join("research_report_summary.txt")
+    } else if output_dir
+        .join("research_report")
+        .join("research_report_summary.txt")
+        .exists()
+    {
+        output_dir
+            .join("research_report")
+            .join("research_report_summary.txt")
+    } else {
+        output_dir.join("research_report_summary.txt")
+    };
+    let research_json_path = if output_dir.join("research_report.json").exists() {
+        output_dir.join("research_report.json")
+    } else if output_dir
+        .join("research_report")
+        .join("research_report.json")
+        .exists()
+    {
+        output_dir
+            .join("research_report")
+            .join("research_report.json")
+    } else {
+        output_dir.join("research_report.json")
+    };
     let data_quality_summary_path = if output_dir.join("data_quality_summary.txt").exists() {
         output_dir.join("data_quality_summary.txt")
     } else if output_dir
@@ -270,6 +347,10 @@ pub fn build_dashboard_with_language(
     let rejection_rows = read_rejection_rows(&rejections_path)?;
     let factor_summary = fs::read_to_string(&factor_summary_path).unwrap_or_else(|_| String::new());
     let factor_kv = parse_kv_lines(&factor_summary);
+    let research_summary =
+        fs::read_to_string(&research_summary_path).unwrap_or_else(|_| String::new());
+    let research_summary_html = escape_html(&research_summary);
+    let research_summary_kv = parse_kv_lines(&research_summary);
     let audit_summary =
         fs::read_to_string(&audit_summary_path).unwrap_or_else(|_| "no audit snapshot".to_string());
     let audit_html = escape_html(&audit_summary);
@@ -278,12 +359,16 @@ pub fn build_dashboard_with_language(
     let data_quality_html = escape_html(&data_quality_summary);
     let data_quality_rows = read_data_quality_rows(&data_quality_report_path)?;
     let (audit_config_sha, audit_markets) = read_audit_snapshot(&audit_json_path);
+    let (research_decay_rows, research_rolling_rows) = read_research_report(&research_json_path);
 
     let trade_json = serde_json::to_string(&trade_rows)?;
     let rejection_json = serde_json::to_string(&rejection_rows)?;
     let equity_rows_json = serde_json::to_string(&equity_rows)?;
     let summary_kv_json = serde_json::to_string(&summary_kv)?;
     let factor_kv_json = serde_json::to_string(&factor_kv)?;
+    let research_summary_kv_json = serde_json::to_string(&research_summary_kv)?;
+    let research_decay_json = serde_json::to_string(&research_decay_rows)?;
+    let research_rolling_json = serde_json::to_string(&research_rolling_rows)?;
     let data_quality_json = serde_json::to_string(&data_quality_rows)?;
     let audit_markets_json = serde_json::to_string(&audit_markets)?;
     let audit_config_sha_json = serde_json::to_string(&audit_config_sha)?;
@@ -389,12 +474,22 @@ th {{ color: var(--muted); font-weight: 600; }}
 .bar-row {{ display: grid; grid-template-columns: 140px 1fr 64px; gap: 10px; align-items: center; }}
 .bar-track {{ height: 10px; border-radius: 999px; background: rgba(15,23,42,0.08); overflow: hidden; }}
 .bar-fill {{ height: 100%; border-radius: 999px; background: linear-gradient(90deg, rgba(15,118,110,0.95), rgba(245,158,11,0.92)); }}
+.mini-grid {{ display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:10px; }}
+.mini-kpi {{ background: var(--panel2); border: 1px solid rgba(15, 23, 42, 0.10); border-radius: 14px; padding: 12px; }}
+.mini-kpi .k {{ color: var(--muted); font-size: 12px; }}
+.mini-kpi .v {{ font-size: 16px; font-weight: 800; margin-top: 6px; line-height: 1.3; }}
+.stack {{ display:grid; gap: 12px; }}
+.table-card {{ border: 1px solid rgba(15,23,42,0.08); border-radius: 14px; overflow: hidden; background: rgba(255,255,255,0.7); }}
+.table-card table {{ font-size: 12px; }}
+.table-card th, .table-card td {{ padding: 7px 8px; }}
+.subtle-title {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }}
 @keyframes rise {{ from {{ transform: translateY(8px); opacity: 0; }} to {{ transform: translateY(0); opacity: 1; }} }}
 @media (max-width: 960px) {{
   .grid {{ grid-template-columns: 1fr; }}
   #chart {{ height: 280px; }}
   .filters {{ grid-template-columns: 1fr; }}
   .bar-row {{ grid-template-columns: 120px 1fr 56px; }}
+  .mini-grid {{ grid-template-columns: 1fr; }}
 }}
 </style>
 </head>
@@ -526,6 +621,56 @@ th {{ color: var(--muted); font-weight: 600; }}
         <div class="factor-bars" id="factor-bars"></div>
       </section>
     </div>
+
+    <section class="panel" data-delay="5" style="margin-top: 16px;">
+      <div class="toolbar">
+        <h3 id="research-title" style="margin:0;">{research}</h3>
+        <span class="chip" id="research-stats"></span>
+      </div>
+      <div class="mini-grid" id="research-kpis"></div>
+      <div style="margin-top: 12px;">
+        <div class="summary" id="research-summary-block">{research_summary_html}</div>
+      </div>
+      <div class="grid" style="margin-top: 12px;">
+        <div class="stack">
+          <div>
+            <div class="subtle-title" id="decay-title">{decay_overview}</div>
+            <div class="table-card">
+              <table>
+                <thead>
+                  <tr>
+                    <th id="research-decay-factor">{factors}</th>
+                    <th id="research-decay-scope">{scope}</th>
+                    <th id="research-decay-horizon">{horizon_days}</th>
+                    <th id="research-decay-ic">{ic_short}</th>
+                    <th id="research-decay-spread">{spread}</th>
+                  </tr>
+                </thead>
+                <tbody id="research-decay-rows"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="stack">
+          <div>
+            <div class="subtle-title" id="rolling-title">{rolling_ic}</div>
+            <div class="table-card">
+              <table>
+                <thead>
+                  <tr>
+                    <th id="research-rolling-date">{date}</th>
+                    <th id="research-rolling-factor">{factors}</th>
+                    <th id="research-rolling-horizon">{horizon_days}</th>
+                    <th id="research-rolling-ic">{ic_short}</th>
+                  </tr>
+                </thead>
+                <tbody id="research-rolling-rows"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 
 <script>
@@ -536,6 +681,9 @@ let trades = {trade_json};
 let rejections = {rejection_json};
 let summaryKv = {summary_kv_json};
 let factorKv = {factor_kv_json};
+let researchSummaryKv = {research_summary_kv_json};
+let researchDecayRows = {research_decay_json};
+let researchRollingRows = {research_rolling_json};
 let dataQualityRows = {data_quality_json};
 let auditMarkets = {audit_markets_json};
 let auditConfigSha = {audit_config_sha_json};
@@ -761,6 +909,70 @@ function renderFactors(text) {{
   }});
 }}
 
+function fmtSignedPct(n) {{
+  if (n == null || !Number.isFinite(n)) return '-';
+  const sign = n > 0 ? '+' : '';
+  return sign + (n * 100).toFixed(2) + '%';
+}}
+
+function researchCardValue(key) {{
+  return (researchSummaryKv || {{}})[key] || '';
+}}
+
+function renderResearch(text) {{
+  const kpis = document.getElementById('research-kpis');
+  const decayBody = document.getElementById('research-decay-rows');
+  const rollingBody = document.getElementById('research-rolling-rows');
+  const folds = researchCardValue('folds');
+  const avgSharpe = researchCardValue('avg_test_sharpe');
+  const bestDecay = {{
+    factor: researchCardValue('best_decay_factor') || '-',
+    horizon: researchCardValue('best_decay_horizon_days') || '-',
+    ic: researchCardValue('best_decay_ic') || '-',
+  }};
+  const latestRolling = {{
+    factor: researchCardValue('latest_rolling_factor') || '-',
+    horizon: researchCardValue('latest_rolling_horizon_days') || '-',
+    ic: researchCardValue('latest_rolling_ic') || '-',
+  }};
+
+  const cards = [
+    {{ k: text.folds, v: folds || '-' }},
+    {{ k: text.avg_test_sharpe_short, v: avgSharpe || '-' }},
+    {{ k: text.best_decay, v: `${{bestDecay.factor}} | ${{bestDecay.horizon}}d | IC=${{bestDecay.ic}}` }},
+    {{ k: text.latest_rolling, v: `${{latestRolling.factor}} | ${{latestRolling.horizon}}d | IC=${{latestRolling.ic}}` }},
+  ];
+  kpis.innerHTML = cards.map((it) => (
+    `<div class="mini-kpi"><div class="k">${{it.k}}</div><div class="v">${{it.v}}</div></div>`
+  )).join('');
+
+  const bestDecayRows = [...(researchDecayRows || [])]
+    .filter((r) => !r.scope || r.scope === 'ALL')
+    .sort((a, b) => Number(b.ic || 0) - Number(a.ic || 0))
+    .slice(0, 6);
+  decayBody.innerHTML = bestDecayRows.length === 0
+    ? `<tr><td colspan="5" class="sub">research_report.json</td></tr>`
+    : bestDecayRows.map((r) => (
+      `<tr><td>${{r.factor}}</td><td>${{r.scope || 'ALL'}}</td><td>${{r.horizon_days}}</td><td>${{Number(r.ic || 0).toFixed(4)}}</td><td>${{fmtSignedPct(Number(r.long_short_spread || 0))}}</td></tr>`
+    )).join('');
+
+  const rollingRows = [...(researchRollingRows || [])]
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(a.factor || '').localeCompare(String(b.factor || '')))
+    .slice(0, 8);
+  rollingBody.innerHTML = rollingRows.length === 0
+    ? `<tr><td colspan="4" class="sub">rolling_ic.csv / research_report.json</td></tr>`
+    : rollingRows.map((r) => (
+      `<tr><td>${{r.date}}</td><td>${{r.factor}}</td><td>${{r.horizon_days}}</td><td>${{Number(r.ic || 0).toFixed(4)}}</td></tr>`
+    )).join('');
+
+  const stats = [
+    (folds ? (`${{text.folds}}=${{folds}}`) : ''),
+    (`decay=${{(researchDecayRows || []).length}}`),
+    (`rolling=${{(researchRollingRows || []).length}}`),
+  ].filter(Boolean);
+  document.getElementById('research-stats').textContent = stats.join(' | ');
+}}
+
 function renderKpis(text) {{
   const kv = summaryKv || {{}};
   const startEq = parseNum(kv.start_equity);
@@ -916,6 +1128,18 @@ function applyLanguage(lang) {{
   document.getElementById('rej-th-reason').textContent = text.reason;
 
   document.getElementById('factors-title').textContent = text.factors;
+  document.getElementById('research-title').textContent = text.research;
+  document.getElementById('decay-title').textContent = text.decay_overview;
+  document.getElementById('rolling-title').textContent = text.rolling_ic;
+  document.getElementById('research-decay-factor').textContent = text.factors;
+  document.getElementById('research-decay-scope').textContent = text.scope;
+  document.getElementById('research-decay-horizon').textContent = text.horizon_days;
+  document.getElementById('research-decay-ic').textContent = text.ic_short;
+  document.getElementById('research-decay-spread').textContent = text.spread;
+  document.getElementById('research-rolling-date').textContent = text.date;
+  document.getElementById('research-rolling-factor').textContent = text.factors;
+  document.getElementById('research-rolling-horizon').textContent = text.horizon_days;
+  document.getElementById('research-rolling-ic').textContent = text.ic_short;
   document.getElementById('dq-th-status').textContent = text.status;
   document.getElementById('dq-th-rows').textContent = text.rows;
   document.getElementById('dq-th-issues').textContent = text.issues;
@@ -930,6 +1154,7 @@ function applyLanguage(lang) {{
   renderTrades(text);
   renderRejections();
   renderFactors(text);
+  renderResearch(text);
   renderDataQuality();
   renderAudit();
 }}
@@ -1013,7 +1238,7 @@ function renderAudit() {{
 
 async function refreshFromFiles() {{
   try {{
-    const [summaryResp, equityResp, tradesResp, rejResp, factorResp, auditResp, dqResp, dq2Resp, dqReportResp, auditJsonResp] =
+    const [summaryResp, equityResp, tradesResp, rejResp, factorResp, auditResp, researchSummaryResp, researchSummaryResp2, researchJsonResp, researchJsonResp2, dqResp, dq2Resp, dqReportResp, auditJsonResp] =
       await Promise.all([
       fetch('./summary.txt', {{ cache: 'no-store' }}),
       fetch('./equity_curve.csv', {{ cache: 'no-store' }}),
@@ -1021,6 +1246,10 @@ async function refreshFromFiles() {{
       fetch('./rejections.csv', {{ cache: 'no-store' }}),
       fetch('./factor_attribution_summary.txt', {{ cache: 'no-store' }}),
       fetch('./audit_snapshot_summary.txt', {{ cache: 'no-store' }}),
+      fetch('./research_report_summary.txt', {{ cache: 'no-store' }}).catch(() => null),
+      fetch('./research_report/research_report_summary.txt', {{ cache: 'no-store' }}).catch(() => null),
+      fetch('./research_report.json', {{ cache: 'no-store' }}).catch(() => null),
+      fetch('./research_report/research_report.json', {{ cache: 'no-store' }}).catch(() => null),
       fetch('./data_quality_summary.txt', {{ cache: 'no-store' }}).catch(() => null),
       fetch('./data_quality/data_quality_summary.txt', {{ cache: 'no-store' }}).catch(() => null),
       fetch('./data_quality_report.csv', {{ cache: 'no-store' }}).catch(() => null),
@@ -1035,6 +1264,24 @@ async function refreshFromFiles() {{
     if (auditResp.ok) {{
       const a = await auditResp.text();
       document.getElementById('audit-block').textContent = a;
+    }}
+    if (researchSummaryResp || researchSummaryResp2) {{
+      const s = researchSummaryResp && researchSummaryResp.ok ? await researchSummaryResp.text() : '';
+      const s2 = researchSummaryResp2 && researchSummaryResp2.ok ? await researchSummaryResp2.text() : '';
+      const textSummary = s || s2 || '';
+      document.getElementById('research-summary-block').textContent = textSummary || 'no research report summary';
+      researchSummaryKv = parseKv(textSummary);
+    }}
+    const researchJsonSource = (researchJsonResp && researchJsonResp.ok)
+      ? researchJsonResp
+      : ((researchJsonResp2 && researchJsonResp2.ok) ? researchJsonResp2 : null);
+    if (researchJsonSource) {{
+      const t = await researchJsonSource.text();
+      try {{
+        const obj = JSON.parse(t);
+        researchDecayRows = obj.factor_decay_rows || [];
+        researchRollingRows = obj.rolling_ic_rows || [];
+      }} catch (e) {{}}
     }}
     if (dqResp || dq2Resp) {{
       const t = dqResp && dqResp.ok ? await dqResp.text() : '';
@@ -1190,7 +1437,15 @@ refreshFromFiles();
         rejections = text.rejections,
         reason = text.reason,
         factors = text.factors,
+        research = text.research,
+        decay_overview = text.decay_overview,
+        rolling_ic = text.rolling_ic,
+        horizon_days = text.horizon_days,
+        ic_short = text.ic_short,
+        spread = text.spread,
+        scope = text.scope,
         summary_html = summary_html,
+        research_summary_html = research_summary_html,
         audit_html = audit_html,
         data_quality_html = data_quality_html,
         equity_rows_json = equity_rows_json,
@@ -1198,6 +1453,9 @@ refreshFromFiles();
         rejection_json = rejection_json,
         summary_kv_json = summary_kv_json,
         factor_kv_json = factor_kv_json,
+        research_summary_kv_json = research_summary_kv_json,
+        research_decay_json = research_decay_json,
+        research_rolling_json = research_rolling_json,
         data_quality_json = data_quality_json,
         audit_markets_json = audit_markets_json,
         audit_config_sha_json = audit_config_sha_json,
@@ -1426,6 +1684,14 @@ fn read_audit_snapshot(path: &Path) -> (String, Vec<AuditMarketUi>) {
     (snap.config_sha256, out)
 }
 
+fn read_research_report(path: &Path) -> (Vec<FactorDecayRowUi>, Vec<RollingIcRowUi>) {
+    let Ok(s) = fs::read_to_string(path) else {
+        return (Vec::new(), Vec::new());
+    };
+    let report: ResearchReportCompat = serde_json::from_str(&s).unwrap_or_default();
+    (report.factor_decay_rows, report.rolling_ic_rows)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -1461,6 +1727,42 @@ mod tests {
         let html = fs::read_to_string(path).expect("read dashboard");
         assert!(html.contains(r#"<html lang="zh-CN">"#));
         assert!(html.contains("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;"));
+    }
+
+    #[test]
+    fn build_dashboard_embeds_research_section() {
+        let output_dir = make_temp_output_dir("ui_research_embed");
+        fs::write(output_dir.join("summary.txt"), "pnl=1.0\n").expect("write summary");
+        fs::write(
+            output_dir.join("equity_curve.csv"),
+            "date,equity,cash,gross_exposure,net_exposure\n2026-01-01,1.0,1.0,0.0,0.0\n2026-01-02,1.2,1.1,0.2,0.1\n",
+        )
+        .expect("write equity");
+        fs::write(
+            output_dir.join("research_report_summary.txt"),
+            "folds=3\navg_test_sharpe=1.2345\nbest_decay_factor=momentum\nbest_decay_horizon_days=5\nbest_decay_ic=0.2222\nlatest_rolling_factor=volume\nlatest_rolling_horizon_days=3\nlatest_rolling_ic=0.1111\n",
+        )
+        .expect("write research summary");
+        fs::write(
+            output_dir.join("research_report.json"),
+            r#"{
+  "factor_decay_rows":[
+    {"scope":"ALL","factor":"momentum","horizon_days":5,"observations":10,"ic":0.2222,"top_quintile_avg_return":0.01,"bottom_quintile_avg_return":-0.01,"long_short_spread":0.02}
+  ],
+  "rolling_ic_rows":[
+    {"date":"2026-01-02","factor":"volume","horizon_days":3,"observations":9,"ic":0.1111}
+  ]
+}"#,
+        )
+        .expect("write research json");
+
+        let path =
+            build_dashboard_with_language(&output_dir, Language::En).expect("build dashboard");
+        let html = fs::read_to_string(path).expect("read dashboard");
+        assert!(html.contains("Research"));
+        assert!(html.contains("researchDecayRows"));
+        assert!(html.contains("momentum"));
+        assert!(html.contains("researchRollingRows"));
     }
 
     fn make_temp_output_dir(prefix: &str) -> PathBuf {
