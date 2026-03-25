@@ -647,7 +647,12 @@ fn render_snapshot(
                 hints
                     .market_hints
                     .iter()
-                    .map(|hint| format!("{}:{}:{}", hint.market, hint.stance, hint.headline))
+                    .map(|hint| {
+                        format!(
+                            "{}:{}:{}:{}",
+                            hint.market, hint.action, hint.stance, hint.headline
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join(" | ")
             )?;

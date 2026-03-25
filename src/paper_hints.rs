@@ -18,6 +18,7 @@ pub struct PaperHintsCompareInput {
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct PaperHintMarketReport {
     pub market: String,
+    pub action: String,
     pub stance: String,
     pub headline: String,
     pub bullets: Vec<String>,
@@ -190,9 +191,11 @@ pub fn render_paper_hints_summary(report: &PaperHintsReport) -> String {
     ));
     for (idx, market_hint) in report.market_hints.iter().enumerate() {
         out.push_str(&format!(
-            "market_hint_{}_market={}\nmarket_hint_{}_stance={}\nmarket_hint_{}_headline={}\n",
+            "market_hint_{}_market={}\nmarket_hint_{}_action={}\nmarket_hint_{}_stance={}\nmarket_hint_{}_headline={}\n",
             idx + 1,
             market_hint.market,
+            idx + 1,
+            market_hint.action,
             idx + 1,
             market_hint.stance,
             idx + 1,
@@ -224,6 +227,15 @@ fn build_market_hints(ctx: &MarketHintsContext<'_>) -> Vec<PaperHintMarketReport
         let is_leader_market = market == ctx.top_market && ctx.top_market != "-";
         let compare_changes = ctx.compare.map(|item| item.research_changes).unwrap_or(0);
         let daemon_alerts = ctx.daemon.map(|item| item.alerts).unwrap_or(0);
+        let action = if daemon_alerts > 0 {
+            "de-risk"
+        } else if is_transition_market {
+            "rotate"
+        } else if compare_changes > 0 || ctx.rotation_switches > 1 {
+            "observe"
+        } else {
+            "hold"
+        };
         let stance = if daemon_alerts > 0 {
             "RISK"
         } else if is_transition_market || compare_changes > 0 || ctx.rotation_switches > 1 {
@@ -280,6 +292,7 @@ fn build_market_hints(ctx: &MarketHintsContext<'_>) -> Vec<PaperHintMarketReport
         }
         hints.push(PaperHintMarketReport {
             market: market.to_string(),
+            action: action.to_string(),
             stance: stance.to_string(),
             headline,
             bullets,
@@ -373,9 +386,14 @@ mod tests {
         assert_eq!(report.market_hints.len(), 2);
         assert!(report.market_hints.iter().any(|item| item.market == "US"));
         assert!(report.market_hints.iter().any(|item| item.market == "JP"));
+        assert!(report
+            .market_hints
+            .iter()
+            .any(|item| item.action == "rotate"));
         let summary = render_paper_hints_summary(&report);
         assert!(summary.contains("watch_markets=US|JP"));
         assert!(summary.contains("market_hints_count=2"));
+        assert!(summary.contains("market_hint_1_action="));
         assert!(summary.contains("bullet_1="));
     }
 }

@@ -2698,7 +2698,7 @@ function renderPaperHints(text) {{
         const itemStance = String(item && item.stance || 'HEALTHY').toUpperCase();
         const itemBullets = Array.isArray(item && item.bullets) ? item.bullets.filter(Boolean) : [];
         return `<div class="regime-card">
-          <div class="regime-title">${{esc(text.market)}} / ${{esc(itemStance)}}</div>
+          <div class="regime-title">${{esc(text.market)}} / ${{esc((item && item.action) || 'hold')}} / ${{esc(itemStance)}}</div>
           <div class="regime-main">${{esc((item && item.market) || '-')}}</div>
           <div class="regime-sub">${{esc((item && item.headline) || '-')}}</div>
           <div class="summary" style="margin-top:10px;">${{esc(itemBullets.length ? itemBullets.join('\n') : 'paper-only: no actionable signals yet')}}</div>
