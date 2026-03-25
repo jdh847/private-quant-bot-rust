@@ -224,8 +224,14 @@ struct CompareReportCompat {
     research_rows: Vec<CompareFieldCompat>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct CompareFieldCompat {
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    baseline: String,
+    #[serde(default)]
+    candidate: String,
     #[serde(default)]
     changed: bool,
 }
@@ -261,6 +267,7 @@ struct RecentCompareUi {
     winner_wins: usize,
     winner_losses: usize,
     winner_neutral: usize,
+    research_top_rows: Vec<CompareFieldCompat>,
 }
 
 #[derive(Debug, Serialize)]
@@ -405,6 +412,7 @@ struct DashboardI18nText {
     compare_hint: String,
     compare_needs_two_runs: String,
     recent_compare: String,
+    research_compare_panel: String,
     run_health: String,
     compare_health: String,
     audit_health: String,
@@ -419,6 +427,8 @@ struct DashboardI18nText {
     audit_changes_label: String,
     data_quality_changes_label: String,
     research_changes_label: String,
+    top_deltas_label: String,
+    changed_key_label: String,
     compare_not_found: String,
     winner_summary: String,
     candidate_wins: String,
@@ -564,6 +574,7 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         compare_hint: t.compare_hint.to_string(),
         compare_needs_two_runs: t.compare_needs_two_runs.to_string(),
         recent_compare: t.recent_compare.to_string(),
+        research_compare_panel: t.research_compare_panel.to_string(),
         run_health: t.run_health.to_string(),
         compare_health: t.compare_health.to_string(),
         audit_health: t.audit_health.to_string(),
@@ -578,6 +589,8 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         audit_changes_label: t.audit_changes_label.to_string(),
         data_quality_changes_label: t.data_quality_changes_label.to_string(),
         research_changes_label: t.research_changes_label.to_string(),
+        top_deltas_label: t.top_deltas_label.to_string(),
+        changed_key_label: t.changed_key_label.to_string(),
         compare_not_found: t.compare_not_found.to_string(),
         winner_summary: t.winner_summary.to_string(),
         candidate_wins: t.candidate_wins.to_string(),
@@ -1492,6 +1505,10 @@ th {{ color: var(--muted); font-weight: 600; }}
           <div class="subtle-title" id="recent-compare-title">{recent_compare}</div>
           <div class="table-card" id="recent-compare-block"></div>
         </div>
+        <div class="compare-block">
+          <div class="subtle-title" id="research-compare-title">{research_compare_panel}</div>
+          <div class="table-card" id="research-compare-block"></div>
+        </div>
       </div>
     </section>
 
@@ -2190,6 +2207,43 @@ function renderRecentCompare(text) {{
         <a class="action-btn link" href="${{esc(recentCompare.html_href || '#')}}">${{esc(text.open_report_html)}}</a>
         <a class="action-btn link" href="${{esc(recentCompare.json_href || '#')}}">${{esc(text.open_report_json)}}</a>
       </div>
+    </div>
+  `;
+}}
+
+function renderResearchComparePanel(text) {{
+  const root = document.getElementById('research-compare-block');
+  if (!root) return;
+  if (!recentCompare || !(recentCompare.research_top_rows || []).length) {{
+    root.innerHTML = `<div class="summary">${{esc(text.compare_not_found)}}</div>`;
+    return;
+  }}
+  const rows = (recentCompare.research_top_rows || []).filter((row) => row && row.changed).slice(0, 8);
+  const topKey = rows[0] ? String(rows[0].key || '-') : '-';
+  root.innerHTML = `
+    <div style="padding:12px 14px;">
+      <div class="mini-grid" style="margin-bottom:10px;">
+        <div class="mini-kpi"><div class="k">${{esc(text.research_changes_label)}}</div><div class="v">${{Number(recentCompare.research_changes || 0)}}</div></div>
+        <div class="mini-kpi"><div class="k">${{esc(text.top_deltas_label)}}</div><div class="v">${{esc(topKey)}}</div></div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>${{esc(text.changed_key_label)}}</th>
+            <th>${{esc(text.baseline_run)}}</th>
+            <th>${{esc(text.candidate_run)}}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${{
+            rows.map((row) => `<tr>
+              <td>${{esc(row.key || '-')}}</td>
+              <td>${{esc(row.baseline || '-')}}</td>
+              <td>${{esc(row.candidate || '-')}}</td>
+            </tr>`).join('')
+          }}
+        </tbody>
+      </table>
     </div>
   `;
 }}
@@ -3454,6 +3508,7 @@ function applyLanguage(lang) {{
   document.getElementById('compare-copy-btn').textContent = text.copy_command_label;
   document.getElementById('compare-hint').textContent = text.compare_hint;
   document.getElementById('recent-compare-title').textContent = text.recent_compare;
+  document.getElementById('research-compare-title').textContent = text.research_compare_panel;
   document.getElementById('public-leaderboard-title').textContent = text.public_leaderboard;
   document.getElementById('leaderboard-source-label').textContent = text.source;
   document.getElementById('leaderboard-time-label').textContent = text.time_range;
@@ -3585,6 +3640,7 @@ function applyLanguage(lang) {{
   renderFactors(text);
   renderStrategyComparison(text);
   renderRecentCompare(text);
+  renderResearchComparePanel(text);
   renderPublicLeaderboard(text);
   renderResearch(text);
   renderDataQuality();
@@ -3939,6 +3995,7 @@ refreshFromFiles();
         copy_command_label = text.copy_command_label,
         compare_hint = text.compare_hint,
         recent_compare = text.recent_compare,
+        research_compare_panel = text.research_compare_panel,
         export_csv = text.export_csv,
         export_markdown = text.export_markdown,
         research = text.research,
@@ -4689,6 +4746,13 @@ fn discover_recent_compare(output_dir: &Path) -> Option<RecentCompareUi> {
         winner_wins: report.winner_summary.wins.len(),
         winner_losses: report.winner_summary.losses.len(),
         winner_neutral: report.winner_summary.neutral.len(),
+        research_top_rows: report
+            .research_rows
+            .iter()
+            .filter(|row| row.changed)
+            .take(8)
+            .cloned()
+            .collect(),
     })
 }
 
@@ -5133,10 +5197,14 @@ mod tests {
   "baseline_dir":"outputs_rust/run_a",
   "candidate_dir":"outputs_rust/run_b",
   "winner_summary":{"winner":"candidate","score":2,"wins":["pnl_ratio: 0.1 -> 0.2"],"losses":["max_drawdown: 0.1 -> 0.2"],"neutral":["trades: flat"]},
-  "metric_rows":[{"changed":true},{"changed":false}],
-  "audit_rows":[{"changed":true}],
-  "data_quality_rows":[{"changed":false},{"changed":true}],
-  "research_rows":[{"changed":true},{"changed":true},{"changed":false}]
+  "metric_rows":[{"key":"pnl_ratio","baseline":"0.1","candidate":"0.2","changed":true},{"key":"trades","baseline":"10","candidate":"10","changed":false}],
+  "audit_rows":[{"key":"config_sha256","baseline":"aaa","candidate":"bbb","changed":true}],
+  "data_quality_rows":[{"key":"pass_markets","baseline":"2","candidate":"2","changed":false},{"key":"non_trading_day_rows","baseline":"0","candidate":"2","changed":true}],
+  "research_rows":[
+    {"key":"top_regime_leader_market","baseline":"US","candidate":"JP","changed":true},
+    {"key":"current_rotation_leader_factor","baseline":"momentum","candidate":"volume","changed":true},
+    {"key":"latest_regime_transition_date","baseline":"2026-01-03","candidate":"2026-01-04","changed":true}
+  ]
 }"#,
         )
         .expect("write compare json");
@@ -5183,6 +5251,7 @@ mod tests {
         assert!(html.contains("compare-candidate-select"));
         assert!(html.contains("compare-copy-btn"));
         assert!(html.contains("recent-compare-block"));
+        assert!(html.contains("research-compare-block"));
         assert!(html.contains("leaderboard-detail-rows"));
         assert!(html.contains("researchWalkForwardRows"));
         assert!(html.contains("researchDecayRows"));
@@ -5199,6 +5268,7 @@ mod tests {
         assert!(html.contains("compare_demo"));
         assert!(html.contains("Metric Changes"));
         assert!(html.contains("Research Changes"));
+        assert!(html.contains("Research Compare Panel"));
         assert!(html.contains("Winner Summary"));
         assert!(html.contains("Candidate Wins"));
         assert!(html.contains("momentum"));

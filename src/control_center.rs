@@ -35,6 +35,7 @@ struct ControlCenterSnapshot {
     data_quality: Option<DataQualityStatus>,
     robustness: HashMap<String, String>,
     research_report: HashMap<String, String>,
+    recent_compare: Option<CompareStatus>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -50,6 +51,36 @@ struct DataQualityStatus {
     pass: usize,
     warn: usize,
     fail: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CompareFieldStatus {
+    key: String,
+    changed: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CompareWinnerStatus {
+    winner: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CompareReportStatus {
+    winner_summary: CompareWinnerStatus,
+    metric_rows: Vec<CompareFieldStatus>,
+    audit_rows: Vec<CompareFieldStatus>,
+    data_quality_rows: Vec<CompareFieldStatus>,
+    research_rows: Vec<CompareFieldStatus>,
+}
+
+#[derive(Debug, Clone)]
+struct CompareStatus {
+    winner: String,
+    metric_changes: usize,
+    audit_changes: usize,
+    data_quality_changes: usize,
+    research_changes: usize,
+    top_research_keys: Vec<String>,
 }
 
 pub fn run_control_center(req: &ControlCenterRequest) -> Result<ControlCenterReport> {
@@ -127,6 +158,7 @@ fn collect_snapshot(root: &Path) -> Result<ControlCenterSnapshot> {
         Some(path) => parse_key_value_file(&path)?,
         None => HashMap::new(),
     };
+    let recent_compare = load_recent_compare_status(root);
 
     Ok(ControlCenterSnapshot {
         summary,
@@ -136,6 +168,7 @@ fn collect_snapshot(root: &Path) -> Result<ControlCenterSnapshot> {
         data_quality,
         robustness,
         research_report,
+        recent_compare,
     })
 }
 
@@ -265,7 +298,7 @@ fn render_snapshot(
             } else {
                 "partial"
             },
-            if root.join("compare_report.json").exists() || root.join("compare_demo").exists() {
+            if snapshot.recent_compare.is_some() {
                 "ready"
             } else {
                 "missing"
@@ -531,6 +564,22 @@ fn render_snapshot(
                 .get("avg_regime_transition_gap_days")
                 .map_or("-", String::as_str),
         )?;
+        if let Some(compare) = &snapshot.recent_compare {
+            writeln!(
+                out,
+                "Research Compare | winner={} changes={} metric/audit/dq={}/{}/{} top={}",
+                compare.winner,
+                compare.research_changes,
+                compare.metric_changes,
+                compare.audit_changes,
+                compare.data_quality_changes,
+                if compare.top_research_keys.is_empty() {
+                    "-".to_string()
+                } else {
+                    compare.top_research_keys.join(",")
+                }
+            )?;
+        }
     }
 
     out.flush()?;
@@ -539,6 +588,64 @@ fn render_snapshot(
 
 fn first_existing_path(paths: &[PathBuf]) -> Option<PathBuf> {
     paths.iter().find(|p| p.exists()).cloned()
+}
+
+fn load_recent_compare_status(root: &Path) -> Option<CompareStatus> {
+    let mut candidate_dirs = Vec::<PathBuf>::new();
+    if root.join("compare_report.json").exists() {
+        candidate_dirs.push(root.to_path_buf());
+    }
+    if let Ok(read_dir) = fs::read_dir(root) {
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.join("compare_report.json").exists() {
+                candidate_dirs.push(path);
+            }
+        }
+    }
+    if let Some(parent) = root.parent() {
+        if let Ok(read_dir) = fs::read_dir(parent) {
+            for entry in read_dir.flatten() {
+                let path = entry.path();
+                if path.is_dir()
+                    && path.join("compare_report.json").exists()
+                    && !candidate_dirs.iter().any(|p| p == &path)
+                {
+                    candidate_dirs.push(path);
+                }
+            }
+        }
+    }
+
+    let latest_dir = candidate_dirs.into_iter().max_by_key(|dir| {
+        fs::metadata(dir.join("compare_report.json"))
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    })?;
+    let text = fs::read_to_string(latest_dir.join("compare_report.json")).ok()?;
+    let report: CompareReportStatus = serde_json::from_str(&text).ok()?;
+    Some(CompareStatus {
+        winner: report.winner_summary.winner,
+        metric_changes: report.metric_rows.iter().filter(|row| row.changed).count(),
+        audit_changes: report.audit_rows.iter().filter(|row| row.changed).count(),
+        data_quality_changes: report
+            .data_quality_rows
+            .iter()
+            .filter(|row| row.changed)
+            .count(),
+        research_changes: report
+            .research_rows
+            .iter()
+            .filter(|row| row.changed)
+            .count(),
+        top_research_keys: report
+            .research_rows
+            .iter()
+            .filter(|row| row.changed)
+            .map(|row| row.key.clone())
+            .take(3)
+            .collect(),
+    })
 }
 
 fn parse_key_value_file(path: &Path) -> Result<HashMap<String, String>> {
