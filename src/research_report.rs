@@ -1264,9 +1264,40 @@ fn render_summary(report: &ResearchReport) -> String {
         .regime_decay_rows
         .iter()
         .max_by(|a, b| a.ic.total_cmp(&b.ic));
+    let regime_leaders = {
+        let mut leaders: BTreeMap<(String, String), &RegimeDecayRow> = BTreeMap::new();
+        for row in &report.regime_decay_rows {
+            leaders
+                .entry((row.market.clone(), row.regime_bucket.clone()))
+                .and_modify(|prev| {
+                    if row.ic > prev.ic {
+                        *prev = row;
+                    }
+                })
+                .or_insert(row);
+        }
+        leaders.into_values().collect::<Vec<_>>()
+    };
+    let top_regime_leader = regime_leaders
+        .iter()
+        .copied()
+        .max_by(|a, b| a.ic.total_cmp(&b.ic));
+    let mut regime_factor_counts: BTreeMap<String, usize> = BTreeMap::new();
+    for row in &regime_leaders {
+        *regime_factor_counts.entry(row.factor.clone()).or_default() += 1;
+    }
+    let dominant_regime_factor = regime_factor_counts
+        .iter()
+        .max_by(|a, b| a.1.cmp(b.1).then_with(|| a.0.cmp(b.0)));
+    let avg_regime_leader_ic = if regime_leaders.is_empty() {
+        0.0
+    } else {
+        regime_leaders.iter().map(|row| row.ic).sum::<f64>() / regime_leaders.len() as f64
+    };
+    let positive_regime_leader_count = regime_leaders.iter().filter(|row| row.ic > 0.0).count();
     let latest_rolling = report.rolling_ic_rows.last();
     format!(
-        "folds={}\navg_test_pnl_ratio={:.4}%\navg_test_sharpe={:.4}\navg_train_test_gap={:.4}\nstrategy_turnover_ratio={:.2}%\ndominant_winner_strategy_plugin={}\ndominant_winner_portfolio_method={}\ndominant_winner_count={}\ndominant_winner_concentration={:.2}%\nunstable_folds={}\nregime_rows={}\nfactor_decay_rows={}\nfactor_quintile_rows={}\nregime_decay_rows={}\nrolling_ic_rows={}\nbest_decay_factor={}\nbest_decay_horizon_days={}\nbest_decay_ic={:.4}\nbest_monotonic_factor={}\nbest_monotonic_horizon_days={}\nbest_monotonicity_score={:.4}\nbest_regime_decay_market={}\nbest_regime_decay_bucket={}\nbest_regime_decay_factor={}\nbest_regime_decay_horizon_days={}\nbest_regime_decay_ic={:.4}\nlatest_rolling_factor={}\nlatest_rolling_horizon_days={}\nlatest_rolling_ic={:.4}\n",
+        "folds={}\navg_test_pnl_ratio={:.4}%\navg_test_sharpe={:.4}\navg_train_test_gap={:.4}\nstrategy_turnover_ratio={:.2}%\ndominant_winner_strategy_plugin={}\ndominant_winner_portfolio_method={}\ndominant_winner_count={}\ndominant_winner_concentration={:.2}%\nunstable_folds={}\ntop_regime_leader_market={}\ntop_regime_leader_bucket={}\ntop_regime_leader_factor={}\ntop_regime_leader_horizon_days={}\ntop_regime_leader_ic={:.4}\ndominant_regime_factor={}\ndominant_regime_factor_count={}\navg_regime_leader_ic={:.4}\npositive_regime_leader_count={}\nregime_rows={}\nfactor_decay_rows={}\nfactor_quintile_rows={}\nregime_decay_rows={}\nrolling_ic_rows={}\nbest_decay_factor={}\nbest_decay_horizon_days={}\nbest_decay_ic={:.4}\nbest_monotonic_factor={}\nbest_monotonic_horizon_days={}\nbest_monotonicity_score={:.4}\nbest_regime_decay_market={}\nbest_regime_decay_bucket={}\nbest_regime_decay_factor={}\nbest_regime_decay_horizon_days={}\nbest_regime_decay_ic={:.4}\nlatest_rolling_factor={}\nlatest_rolling_horizon_days={}\nlatest_rolling_ic={:.4}\n",
         report.walk_forward_summary.folds,
         report.walk_forward_summary.avg_test_pnl_ratio * 100.0,
         report.walk_forward_summary.avg_test_sharpe,
@@ -1281,6 +1312,19 @@ fn render_summary(report: &ResearchReport) -> String {
         dominant_winner_count,
         dominant_winner_concentration * 100.0,
         unstable_folds,
+        top_regime_leader.map(|row| row.market.as_str()).unwrap_or("-"),
+        top_regime_leader
+            .map(|row| row.regime_bucket.as_str())
+            .unwrap_or("-"),
+        top_regime_leader.map(|row| row.factor.as_str()).unwrap_or("-"),
+        top_regime_leader.map(|row| row.horizon_days).unwrap_or(0),
+        top_regime_leader.map(|row| row.ic).unwrap_or(0.0),
+        dominant_regime_factor
+            .map(|(factor, _)| factor.as_str())
+            .unwrap_or("-"),
+        dominant_regime_factor.map(|(_, count)| *count).unwrap_or(0),
+        avg_regime_leader_ic,
+        positive_regime_leader_count,
         report.regime_rows.len(),
         report.factor_decay_rows.len(),
         report.factor_quintile_rows.len(),
@@ -2019,5 +2063,8 @@ mod tests {
         assert!(summary_text.contains("dominant_winner_strategy_plugin="));
         assert!(summary_text.contains("dominant_winner_concentration="));
         assert!(summary_text.contains("unstable_folds="));
+        assert!(summary_text.contains("top_regime_leader_market="));
+        assert!(summary_text.contains("dominant_regime_factor="));
+        assert!(summary_text.contains("positive_regime_leader_count="));
     }
 }

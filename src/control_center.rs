@@ -343,6 +343,46 @@ fn render_snapshot(
                 .get("unstable_folds")
                 .map_or("-", String::as_str),
         )?;
+        writeln!(
+            out,
+            "Regime Leaders | top={} {} {} {}d ic={} dominant_factor={} count={} positive_regimes={} avg_ic={}",
+            snapshot
+                .research_report
+                .get("top_regime_leader_market")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("top_regime_leader_bucket")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("top_regime_leader_factor")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("top_regime_leader_horizon_days")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("top_regime_leader_ic")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("dominant_regime_factor")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("dominant_regime_factor_count")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("positive_regime_leader_count")
+                .map_or("-", String::as_str),
+            snapshot
+                .research_report
+                .get("avg_regime_leader_ic")
+                .map_or("-", String::as_str),
+        )?;
     }
 
     out.flush()?;

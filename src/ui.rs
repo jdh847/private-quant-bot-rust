@@ -386,6 +386,7 @@ struct DashboardI18nText {
     rolling_ic: String,
     regime_split: String,
     walk_forward_winner_board: String,
+    regime_aware_leaderboard: String,
     quantile_ladder: String,
     regime_conditional_decay: String,
     folds: String,
@@ -397,6 +398,8 @@ struct DashboardI18nText {
     dominant_winner: String,
     winner_concentration: String,
     unstable_folds: String,
+    top_regime_leader: String,
+    positive_regimes: String,
     horizon_days: String,
     ic_short: String,
     spread: String,
@@ -517,6 +520,7 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         rolling_ic: t.rolling_ic.to_string(),
         regime_split: t.regime_split.to_string(),
         walk_forward_winner_board: t.walk_forward_winner_board.to_string(),
+        regime_aware_leaderboard: t.regime_aware_leaderboard.to_string(),
         quantile_ladder: t.quantile_ladder.to_string(),
         regime_conditional_decay: t.regime_conditional_decay.to_string(),
         folds: t.folds.to_string(),
@@ -528,6 +532,8 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         dominant_winner: t.dominant_winner.to_string(),
         winner_concentration: t.winner_concentration.to_string(),
         unstable_folds: t.unstable_folds.to_string(),
+        top_regime_leader: t.top_regime_leader.to_string(),
+        positive_regimes: t.positive_regimes.to_string(),
         horizon_days: t.horizon_days.to_string(),
         ic_short: t.ic_short.to_string(),
         spread: t.spread.to_string(),
@@ -1146,6 +1152,41 @@ th {{ color: var(--muted); font-weight: 600; }}
                 </tr>
               </thead>
               <tbody id="research-regime-decay-rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <div class="mini-toolbar">
+          <span class="subtle-title" id="regime-leaderboard-title" style="margin:0;">{regime_aware_leaderboard}</span>
+          <label class="pill"><span id="regime-leaderboard-market-label">{market}</span>
+            <select id="research-regime-leaderboard-market" class="select"></select>
+          </label>
+          <label class="pill"><span id="regime-leaderboard-metric-label">{metric}</span>
+            <select id="research-regime-leaderboard-metric" class="select">
+              <option value="ic">{ic_short}</option>
+              <option value="long_short_spread">{spread}</option>
+            </select>
+          </label>
+        </div>
+        <div class="mini-grid" id="regime-leaderboard-kpis"></div>
+        <div class="grid" style="margin-top:10px;">
+          <div class="chart-shell">
+            <div id="regime-leaderboard-cards" class="regime-grid"></div>
+          </div>
+          <div class="table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th id="regime-leaderboard-th-market">{market}</th>
+                  <th id="regime-leaderboard-th-bucket">{regime_bucket}</th>
+                  <th id="regime-leaderboard-th-factor">{factors}</th>
+                  <th id="regime-leaderboard-th-horizon">{horizon_days}</th>
+                  <th id="regime-leaderboard-th-ic">{ic_short}</th>
+                  <th id="regime-leaderboard-th-spread">{spread}</th>
+                </tr>
+              </thead>
+              <tbody id="regime-leaderboard-rows"></tbody>
             </table>
           </div>
         </div>
@@ -2470,6 +2511,78 @@ function renderWalkForwardBoard(text) {{
   </tr>`).join('');
 }}
 
+function buildRegimeLeaderRows(metric) {{
+  const leaders = new Map();
+  (researchRegimeDecayRows || []).forEach((row) => {{
+    const key = (row.market || '') + '|' + (row.regime_bucket || '');
+    const current = leaders.get(key);
+    const curMetric = current ? Number(current[metric] || 0) : Number.NEGATIVE_INFINITY;
+    const nextMetric = Number(row[metric] || 0);
+    if (!current || nextMetric > curMetric) {{
+      leaders.set(key, row);
+    }}
+  }});
+  return [...leaders.values()].sort((a, b) => {{
+    const metricCmp = Number(b[metric] || 0) - Number(a[metric] || 0);
+    if (metricCmp !== 0) return metricCmp;
+    return String(a.market || '').localeCompare(String(b.market || ''))
+      || String(a.regime_bucket || '').localeCompare(String(b.regime_bucket || ''));
+  }});
+}}
+
+function renderRegimeLeaderboard(text) {{
+  const marketSel = document.getElementById('research-regime-leaderboard-market');
+  const metricSel = document.getElementById('research-regime-leaderboard-metric');
+  const kpis = document.getElementById('regime-leaderboard-kpis');
+  const cards = document.getElementById('regime-leaderboard-cards');
+  const body = document.getElementById('regime-leaderboard-rows');
+  const prevMarket = marketSel.value || 'ALL';
+  const markets = [...new Set((researchRegimeDecayRows || []).map((r) => r.market).filter(Boolean))].sort();
+  marketSel.innerHTML = ['ALL', ...markets].map((m) => `<option value="${{esc(m)}}">${{esc(m === 'ALL' ? text.all : m)}}</option>`).join('');
+  marketSel.value = ['ALL', ...markets].includes(prevMarket) ? prevMarket : 'ALL';
+  const metric = metricSel.value || 'ic';
+  const winnerRows = buildRegimeLeaderRows(metric)
+    .filter((row) => marketSel.value === 'ALL' || row.market === marketSel.value);
+  if (winnerRows.length === 0) {{
+    kpis.innerHTML = `<div class="mini-kpi"><div class="k">${{text.regime_aware_leaderboard}}</div><div class="v">-</div></div>`;
+    cards.innerHTML = `<div class="sub">regime_decay.csv / research_report.json</div>`;
+    body.innerHTML = `<tr><td colspan="6" class="sub">regime_decay.csv / research_report.json</td></tr>`;
+    return;
+  }}
+
+  const factorCounts = new Map();
+  winnerRows.forEach((row) => {{
+    const factor = String(row.factor || '-');
+    factorCounts.set(factor, (factorCounts.get(factor) || 0) + 1);
+  }});
+  const dominantFactor = [...factorCounts.entries()].sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0) || String(a[0]).localeCompare(String(b[0])))[0] || ['-', 0];
+  const topRow = winnerRows[0];
+  const avgIc = winnerRows.reduce((acc, row) => acc + Number(row.ic || 0), 0) / Math.max(winnerRows.length, 1);
+  const positiveCount = winnerRows.filter((row) => Number(row.ic || 0) > 0).length;
+  const cardsData = [
+    {{ k: text.top_regime_leader, v: `${{topRow.market}} | ${{topRow.regime_bucket}} | ${{topRow.factor}} | ${{topRow.horizon_days}}d` }},
+    {{ k: text.dominant_winner, v: String(dominantFactor[0]) }},
+    {{ k: text.positive_regimes, v: String(positiveCount) }},
+    {{ k: text.ic_short, v: Number(avgIc || 0).toFixed(4) }},
+  ];
+  kpis.innerHTML = cardsData.map((it) => `<div class="mini-kpi"><div class="k">${{it.k}}</div><div class="v">${{esc(it.v)}}</div></div>`).join('');
+
+  cards.innerHTML = winnerRows.slice(0, 8).map((row) => `<div class="regime-card">
+    <div class="regime-title">${{esc(row.market)}} / ${{esc(row.regime_bucket)}}</div>
+    <div class="regime-main">${{esc(row.factor)}} / ${{row.horizon_days}}d</div>
+    <div class="regime-sub">IC=${{Number(row.ic || 0).toFixed(4)}} | ${{text.spread}}=${{fmtSignedPct(Number(row.long_short_spread || 0))}} | ${{text.observations}}=${{row.observations}}</div>
+  </div>`).join('');
+
+  body.innerHTML = winnerRows.map((row) => `<tr>
+    <td>${{esc(row.market)}}</td>
+    <td>${{esc(row.regime_bucket)}}</td>
+    <td>${{esc(row.factor)}}</td>
+    <td>${{row.horizon_days}}</td>
+    <td>${{Number(row.ic || 0).toFixed(4)}}</td>
+    <td>${{fmtSignedPct(Number(row.long_short_spread || 0))}}</td>
+  </tr>`).join('');
+}}
+
 function renderResearch(text) {{
   syncResearchControls(text);
   const kpis = document.getElementById('research-kpis');
@@ -2567,6 +2680,7 @@ function renderResearch(text) {{
   ].filter(Boolean);
   document.getElementById('research-stats').textContent = stats.join(' | ');
   renderWalkForwardBoard(text);
+  renderRegimeLeaderboard(text);
   renderResearchCharts(text);
   renderRegime(text);
 }}
@@ -2794,12 +2908,21 @@ function applyLanguage(lang) {{
   setRangeOptions(leaderboardTimeSelect);
   document.getElementById('research-title').textContent = text.research;
   document.getElementById('walk-forward-title').textContent = text.walk_forward_winner_board;
+  document.getElementById('regime-leaderboard-title').textContent = text.regime_aware_leaderboard;
+  document.getElementById('regime-leaderboard-market-label').textContent = text.market;
+  document.getElementById('regime-leaderboard-metric-label').textContent = text.metric;
   document.getElementById('walk-forward-fold').textContent = text.folds;
   document.getElementById('walk-forward-plugin').textContent = text.plugin;
   document.getElementById('walk-forward-method').textContent = text.method;
   document.getElementById('walk-forward-pnl').textContent = text.kpi_pnl_ratio;
   document.getElementById('walk-forward-sharpe').textContent = text.kpi_sharpe;
   document.getElementById('walk-forward-dd').textContent = text.kpi_max_drawdown;
+  document.getElementById('regime-leaderboard-th-market').textContent = text.market;
+  document.getElementById('regime-leaderboard-th-bucket').textContent = text.regime_bucket;
+  document.getElementById('regime-leaderboard-th-factor').textContent = text.factors;
+  document.getElementById('regime-leaderboard-th-horizon').textContent = text.horizon_days;
+  document.getElementById('regime-leaderboard-th-ic').textContent = text.ic_short;
+  document.getElementById('regime-leaderboard-th-spread').textContent = text.spread;
   document.getElementById('decay-chart-title').textContent = text.decay_overview;
   document.getElementById('decay-title').textContent = text.decay_overview;
   document.getElementById('rolling-chart-title').textContent = text.rolling_ic;
@@ -2834,6 +2957,10 @@ function applyLanguage(lang) {{
   const metricSpreadOpt = document.querySelector('#research-decay-metric option[value="long_short_spread"]');
   if (metricIcOpt) metricIcOpt.textContent = text.ic_short;
   if (metricSpreadOpt) metricSpreadOpt.textContent = text.spread;
+  const leaderboardMetricIcOpt = document.querySelector('#research-regime-leaderboard-metric option[value="ic"]');
+  const leaderboardMetricSpreadOpt = document.querySelector('#research-regime-leaderboard-metric option[value="long_short_spread"]');
+  if (leaderboardMetricIcOpt) leaderboardMetricIcOpt.textContent = text.ic_short;
+  if (leaderboardMetricSpreadOpt) leaderboardMetricSpreadOpt.textContent = text.spread;
   document.getElementById('dq-th-status').textContent = text.status;
   document.getElementById('dq-th-rows').textContent = text.rows;
   document.getElementById('dq-th-issues').textContent = text.issues;
@@ -3113,6 +3240,8 @@ document.getElementById('research-quintile-scope').addEventListener('change', ()
 document.getElementById('research-quintile-horizon').addEventListener('change', () => renderResearch(getText(langSwitch.value)));
 document.getElementById('research-regime-decay-market').addEventListener('change', () => renderResearch(getText(langSwitch.value)));
 document.getElementById('research-regime-decay-bucket').addEventListener('change', () => renderResearch(getText(langSwitch.value)));
+document.getElementById('research-regime-leaderboard-market').addEventListener('change', () => renderResearch(getText(langSwitch.value)));
+document.getElementById('research-regime-leaderboard-metric').addEventListener('change', () => renderResearch(getText(langSwitch.value)));
 document.getElementById('strategy-market-select').addEventListener('change', () => renderStrategyComparison(getText(langSwitch.value)));
 document.getElementById('strategy-plugin-select').addEventListener('change', () => renderStrategyComparison(getText(langSwitch.value)));
 document.getElementById('strategy-command-select').addEventListener('change', () => renderStrategyComparison(getText(langSwitch.value)));
@@ -3200,6 +3329,7 @@ refreshFromFiles();
         export_markdown = text.export_markdown,
         research = text.research,
         walk_forward_winner_board = text.walk_forward_winner_board,
+        regime_aware_leaderboard = text.regime_aware_leaderboard,
         decay_overview = text.decay_overview,
         rolling_ic = text.rolling_ic,
         regime_split = text.regime_split,
@@ -3315,6 +3445,11 @@ fn render_share_dashboard(
     let dominant_winner_concentration =
         kv_string(research_summary_kv, "dominant_winner_concentration");
     let unstable_folds = kv_string(research_summary_kv, "unstable_folds");
+    let top_regime_leader_market = kv_string(research_summary_kv, "top_regime_leader_market");
+    let top_regime_leader_bucket = kv_string(research_summary_kv, "top_regime_leader_bucket");
+    let top_regime_leader_factor = kv_string(research_summary_kv, "top_regime_leader_factor");
+    let top_regime_leader_horizon =
+        kv_string(research_summary_kv, "top_regime_leader_horizon_days");
     let top_combo = strategy_compare_rows.first();
     let top_leaderboard = leaderboard_rows.first();
     let pass = data_quality_rows
@@ -3473,6 +3608,7 @@ th {{ color: rgba(16,32,51,.58); }}
         <div class="sub">{best_decay}: <strong>{best_decay_factor}</strong> / {best_decay_horizon}d / IC={best_decay_ic}</div>
         <div class="sub" style="margin-top:8px;">{latest_rolling}: <strong>{latest_rolling_factor}</strong> / {latest_rolling_horizon}d / IC={latest_rolling_ic}</div>
         <div class="sub" style="margin-top:8px;">{dominant_winner}: <strong>{dominant_winner_plugin} / {dominant_winner_method}</strong> | {winner_concentration}={dominant_winner_concentration} | {unstable_folds}={unstable_folds_value}</div>
+        <div class="sub" style="margin-top:8px;">{top_regime_leader}: <strong>{top_regime_leader_market} / {top_regime_leader_bucket} / {top_regime_leader_factor} / {top_regime_leader_horizon}d</strong></div>
         <div class="sub" style="margin-top:14px;">{data_quality}: PASS={pass} | WARN={warn} | FAIL={fail}</div>
       </section>
     </div>
@@ -3523,6 +3659,7 @@ if (printBtn) {{
         dominant_winner = escape_html(text.dominant_winner),
         winner_concentration = escape_html(text.winner_concentration),
         unstable_folds = escape_html(text.unstable_folds),
+        top_regime_leader = escape_html(text.top_regime_leader),
         kpi_end_equity = escape_html(text.kpi_end_equity),
         kpi_pnl_ratio = escape_html(text.kpi_pnl_ratio),
         kpi_sharpe = escape_html(text.kpi_sharpe),
@@ -3541,6 +3678,10 @@ if (printBtn) {{
         dominant_winner_method = escape_html(&dominant_winner_method),
         dominant_winner_concentration = escape_html(&dominant_winner_concentration),
         unstable_folds_value = escape_html(&unstable_folds),
+        top_regime_leader_market = escape_html(&top_regime_leader_market),
+        top_regime_leader_bucket = escape_html(&top_regime_leader_bucket),
+        top_regime_leader_factor = escape_html(&top_regime_leader_factor),
+        top_regime_leader_horizon = escape_html(&top_regime_leader_horizon),
         generated_at = escape_html(&generated_at),
         pass = pass,
         warn = warn,
@@ -4299,7 +4440,7 @@ mod tests {
         .expect("write equity");
         fs::write(
             output_dir.join("research_report_summary.txt"),
-            "folds=3\navg_test_sharpe=1.2345\nbest_decay_factor=momentum\nbest_decay_horizon_days=5\nbest_decay_ic=0.2222\nlatest_rolling_factor=volume\nlatest_rolling_horizon_days=3\nlatest_rolling_ic=0.1111\nbest_monotonic_factor=momentum\nbest_monotonic_horizon_days=5\nbest_monotonicity_score=0.9500\nbest_regime_decay_market=US\nbest_regime_decay_bucket=trend_up_low_vol\nbest_regime_decay_factor=composite\nbest_regime_decay_horizon_days=5\nbest_regime_decay_ic=0.1800\ndominant_winner_strategy_plugin=my_alpha\ndominant_winner_portfolio_method=hrp\ndominant_winner_count=2\ndominant_winner_concentration=66.67%\nunstable_folds=1\n",
+            "folds=3\navg_test_sharpe=1.2345\nbest_decay_factor=momentum\nbest_decay_horizon_days=5\nbest_decay_ic=0.2222\nlatest_rolling_factor=volume\nlatest_rolling_horizon_days=3\nlatest_rolling_ic=0.1111\nbest_monotonic_factor=momentum\nbest_monotonic_horizon_days=5\nbest_monotonicity_score=0.9500\nbest_regime_decay_market=US\nbest_regime_decay_bucket=trend_up_low_vol\nbest_regime_decay_factor=composite\nbest_regime_decay_horizon_days=5\nbest_regime_decay_ic=0.1800\ndominant_winner_strategy_plugin=my_alpha\ndominant_winner_portfolio_method=hrp\ndominant_winner_count=2\ndominant_winner_concentration=66.67%\nunstable_folds=1\ntop_regime_leader_market=US\ntop_regime_leader_bucket=trend_up_low_vol\ntop_regime_leader_factor=composite\ntop_regime_leader_horizon_days=5\ntop_regime_leader_ic=0.1800\ndominant_regime_factor=composite\ndominant_regime_factor_count=2\navg_regime_leader_ic=0.1450\npositive_regime_leader_count=2\n",
         )
         .expect("write research summary");
         fs::write(
@@ -4323,7 +4464,10 @@ mod tests {
     {"scope":"ALL","factor":"momentum","horizon_days":5,"observations":10,"q1_avg_return":-0.01,"q2_avg_return":-0.002,"q3_avg_return":0.001,"q4_avg_return":0.006,"q5_avg_return":0.014,"monotonicity_score":0.95,"q5_q1_spread":0.024}
   ],
   "regime_decay_rows":[
-    {"market":"US","regime_bucket":"trend_up_low_vol","factor":"composite","horizon_days":5,"observations":8,"ic":0.18,"long_short_spread":0.03}
+    {"market":"US","regime_bucket":"trend_up_low_vol","factor":"composite","horizon_days":5,"observations":8,"ic":0.18,"long_short_spread":0.03},
+    {"market":"US","regime_bucket":"trend_up_low_vol","factor":"momentum","horizon_days":3,"observations":8,"ic":0.12,"long_short_spread":0.02},
+    {"market":"JP","regime_bucket":"trend_down_high_vol","factor":"composite","horizon_days":3,"observations":6,"ic":0.11,"long_short_spread":0.01},
+    {"market":"JP","regime_bucket":"trend_down_high_vol","factor":"low_vol","horizon_days":5,"observations":6,"ic":0.07,"long_short_spread":0.015}
   ]
 }"#,
         )
@@ -4375,6 +4519,7 @@ mod tests {
                 .expect("read xiaohongshu cover");
         assert!(html.contains("Research"));
         assert!(html.contains("Walk-Forward Winner Board"));
+        assert!(html.contains("Regime-Aware Leaderboard"));
         assert!(html.contains("Strategy Comparison"));
         assert!(html.contains("Public Leaderboard"));
         assert!(html.contains("strategy-detail-rows"));
@@ -4408,6 +4553,7 @@ mod tests {
         assert!(html.contains("researchRollingRows"));
         assert!(html.contains("researchQuintileRows"));
         assert!(html.contains("researchRegimeDecayRows"));
+        assert!(html.contains("research-regime-leaderboard-market"));
         assert!(html.contains("research-decay-chart"));
         assert!(html.contains("research-rolling-chart"));
         assert!(html.contains("walk-forward-cards"));
@@ -4415,6 +4561,9 @@ mod tests {
         assert!(html.contains("research-regime-cards"));
         assert!(html.contains("research-quintile-chart"));
         assert!(html.contains("research-regime-decay-chart"));
+        assert!(html.contains("regime-leaderboard-rows"));
+        assert!(html.contains("top_regime_leader_market"));
+        assert!(html.contains("trend_down_high_vol"));
         assert!(html.contains("best_monotonic_factor"));
         assert!(html.contains("dominant_winner_strategy_plugin"));
         assert!(html.contains("trend_up_low_vol"));
