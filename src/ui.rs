@@ -163,6 +163,7 @@ struct CompareWinnerSummaryCompat {
 #[derive(Debug, Clone, Serialize)]
 struct RecentCompareUi {
     output_dir: String,
+    output_href: String,
     html_href: String,
     json_href: String,
     baseline_dir: String,
@@ -313,6 +314,7 @@ struct DashboardI18nText {
     baseline_run: String,
     candidate_run: String,
     output_dir_label: String,
+    open_output_dir: String,
     copy_command_label: String,
     compare_hint: String,
     compare_needs_two_runs: String,
@@ -327,6 +329,8 @@ struct DashboardI18nText {
     candidate_wins: String,
     candidate_losses: String,
     compare_tie: String,
+    export_csv: String,
+    export_markdown: String,
     research: String,
     decay_overview: String,
     rolling_ic: String,
@@ -431,6 +435,7 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         baseline_run: t.baseline_run.to_string(),
         candidate_run: t.candidate_run.to_string(),
         output_dir_label: t.output_dir_label.to_string(),
+        open_output_dir: t.open_output_dir.to_string(),
         copy_command_label: t.copy_command_label.to_string(),
         compare_hint: t.compare_hint.to_string(),
         compare_needs_two_runs: t.compare_needs_two_runs.to_string(),
@@ -445,6 +450,8 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         candidate_wins: t.candidate_wins.to_string(),
         candidate_losses: t.candidate_losses.to_string(),
         compare_tie: t.compare_tie.to_string(),
+        export_csv: t.export_csv.to_string(),
+        export_markdown: t.export_markdown.to_string(),
         research: t.research.to_string(),
         decay_overview: t.decay_overview.to_string(),
         rolling_ic: t.rolling_ic.to_string(),
@@ -1004,6 +1011,8 @@ th {{ color: var(--muted); font-weight: 600; }}
             <option value="30D">{recent_30d}</option>
           </select>
         </label>
+        <button id="strategy-export-csv-btn" class="action-btn" type="button">{export_csv}</button>
+        <button id="strategy-export-md-btn" class="action-btn" type="button">{export_markdown}</button>
       </div>
       <div class="grid">
         <div class="chart-shell">
@@ -1574,6 +1583,18 @@ function shellQuote(value) {{
   return `'${{s.replace(/'/g, `'\"'\"'`)}}'`;
 }}
 
+function downloadTextFile(filename, mime, content) {{
+  const blob = new Blob([content], {{ type: mime }});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}}
+
 function runOptionLabel(row) {{
   const stamp = row && row.timestamp_utc ? row.timestamp_utc : '-';
   const command = row && row.command ? row.command : '-';
@@ -1728,6 +1749,7 @@ function renderRecentCompare(text) {{
         ${{esc(text.data_quality_changes_label)}}=${{Number(recentCompare.data_quality_changes || 0)}}
       </div>
       <div class="compare-links">
+        <a class="action-btn link" href="${{esc(recentCompare.output_href || '#')}}">${{esc(text.open_output_dir)}}</a>
         <a class="action-btn link" href="${{esc(recentCompare.html_href || '#')}}">${{esc(text.open_report_html)}}</a>
         <a class="action-btn link" href="${{esc(recentCompare.json_href || '#')}}">${{esc(text.open_report_json)}}</a>
       </div>
@@ -1785,12 +1807,18 @@ function renderStrategyComparison(text) {{
   const stats = document.getElementById('strategy-comparison-stats');
   const detailBody = document.getElementById('strategy-detail-rows');
   const selectedChip = document.getElementById('strategy-selected-combo');
+  const exportCsvBtn = document.getElementById('strategy-export-csv-btn');
+  const exportMdBtn = document.getElementById('strategy-export-md-btn');
   if (!strategyCompareRows || strategyCompareRows.length === 0) {{
     chart.innerHTML = `<div class="sub">run_registry.csv</div>`;
     body.innerHTML = `<tr><td colspan="7" class="sub">run_registry.csv not found</td></tr>`;
     detailBody.innerHTML = `<tr><td colspan="6" class="sub">run_registry.csv not found</td></tr>`;
     selectedChip.textContent = '';
     stats.textContent = '0';
+    exportCsvBtn.disabled = true;
+    exportMdBtn.disabled = true;
+    exportCsvBtn.onclick = null;
+    exportMdBtn.onclick = null;
     renderCompareShortcut(text, filteredRegistryRows, []);
     return;
   }}
@@ -1832,6 +1860,49 @@ function renderStrategyComparison(text) {{
   const combos = strategyCompareRows.length;
   const runs = filteredRegistryRows.filter((r) => r.strategy_plugin || r.portfolio_method).length;
   stats.textContent = `${{runs}} runs | ${{combos}} combos | market=${{selectedMarket}} | plugin=${{selectedPlugin}} | command=${{selectedCommand}} | range=${{selectedRange}}`;
+
+  const exportBaseName = `strategy_compare_${{String(selectedMarket || 'all').toLowerCase()}}_${{String(selectedPlugin || 'all').toLowerCase().replace(/[^a-z0-9]+/g, '_')}}_${{String(selectedCommand || 'all').toLowerCase().replace(/[^a-z0-9]+/g, '_')}}_${{String(selectedRange || 'all').toLowerCase()}}`;
+  exportCsvBtn.disabled = false;
+  exportMdBtn.disabled = false;
+  exportCsvBtn.onclick = () => {{
+    const header = ['strategy_plugin','portfolio_method','runs','avg_score','best_score','avg_pnl_ratio','avg_sharpe','market_filter','plugin_filter','command_filter','time_range'];
+    const rows = strategyCompareRows.map((row) => [
+      row.strategy_plugin,
+      row.portfolio_method,
+      row.runs,
+      Number(row.avg_score || 0).toFixed(6),
+      Number(row.best_score || 0).toFixed(6),
+      Number(row.avg_pnl_ratio || 0).toFixed(6),
+      Number(row.avg_sharpe || 0).toFixed(6),
+      selectedMarket,
+      selectedPlugin,
+      selectedCommand,
+      selectedRange,
+    ]);
+    const csv = [header, ...rows].map((cols) => cols.map((col) => `"${{String(col == null ? '' : col).replaceAll('"', '""')}}"`).join(',')).join('\n');
+    downloadTextFile(`${{exportBaseName}}.csv`, 'text/csv;charset=utf-8', csv);
+  }};
+  exportMdBtn.onclick = () => {{
+    const lines = [
+      '# Strategy Comparison Snapshot',
+      '',
+      `- market=${{selectedMarket}}`,
+      `- plugin=${{selectedPlugin}}`,
+      `- command=${{selectedCommand}}`,
+      `- range=${{selectedRange}}`,
+      `- combos=${{combos}}`,
+      `- runs=${{runs}}`,
+      '',
+      '| Plugin | Method | Runs | Avg Score | Best Score | Avg PnL | Avg Sharpe |',
+      '| --- | --- | ---: | ---: | ---: | ---: | ---: |',
+      ...strategyCompareRows.map((row) => `| ${{row.strategy_plugin}} | ${{row.portfolio_method}} | ${{row.runs}} | ${{Number(row.avg_score || 0).toFixed(3)}} | ${{Number(row.best_score || 0).toFixed(3)}} | ${{fmtSignedPct(Number(row.avg_pnl_ratio || 0))}} | ${{Number(row.avg_sharpe || 0).toFixed(3)}} |`),
+      '',
+      '## Selected Combo Runs',
+      '',
+      ...detailRows.map((r) => `- ${{r.timestamp_utc || '-'}} | ${{r.command || '-'}} | score=${{Number(r.composite_score || 0).toFixed(3)}} | pnl=${{fmtSignedPct(Number(r.pnl_ratio || 0))}} | sharpe=${{Number(r.sharpe || 0).toFixed(3)}}`)
+    ];
+    downloadTextFile(`${{exportBaseName}}.md`, 'text/markdown;charset=utf-8', lines.join('\n'));
+  }};
 
   chart.querySelectorAll('[data-combo-key]').forEach((el) => {{
     el.addEventListener('click', () => {{
@@ -2287,6 +2358,8 @@ function applyLanguage(lang) {{
   document.getElementById('strategy-plugin-label').textContent = text.plugin;
   document.getElementById('strategy-command-label').textContent = text.command_label;
   document.getElementById('strategy-time-label').textContent = text.time_range;
+  document.getElementById('strategy-export-csv-btn').textContent = text.export_csv;
+  document.getElementById('strategy-export-md-btn').textContent = text.export_markdown;
   document.getElementById('strategy-th-plugin').textContent = text.plugin;
   document.getElementById('strategy-th-method').textContent = text.method;
   document.getElementById('strategy-th-runs').textContent = text.runs_label;
@@ -2718,9 +2791,12 @@ refreshFromFiles();
         baseline_run = text.baseline_run,
         candidate_run = text.candidate_run,
         output_dir_label = text.output_dir_label,
+        open_output_dir = text.open_output_dir,
         copy_command_label = text.copy_command_label,
         compare_hint = text.compare_hint,
         recent_compare = text.recent_compare,
+        export_csv = text.export_csv,
+        export_markdown = text.export_markdown,
         research = text.research,
         decay_overview = text.decay_overview,
         rolling_ic = text.rolling_ic,
@@ -3400,6 +3476,7 @@ fn discover_recent_compare(output_dir: &Path) -> Option<RecentCompareUi> {
     let report: CompareReportCompat = serde_json::from_str(&report_text).ok()?;
     Some(RecentCompareUi {
         output_dir: latest_dir.display().to_string(),
+        output_href: relative_href(output_dir, &latest_dir),
         html_href: relative_href(output_dir, &latest_dir.join("compare_report.html")),
         json_href: relative_href(output_dir, &latest_dir.join("compare_report.json")),
         baseline_dir: report.baseline_dir,
@@ -3851,6 +3928,8 @@ mod tests {
         assert!(html.contains("strategy-market-select"));
         assert!(html.contains("strategy-plugin-select"));
         assert!(html.contains("strategy-command-select"));
+        assert!(html.contains("strategy-export-csv-btn"));
+        assert!(html.contains("strategy-export-md-btn"));
         assert!(html.contains("compare-baseline-select"));
         assert!(html.contains("compare-candidate-select"));
         assert!(html.contains("compare-copy-btn"));
@@ -3867,6 +3946,7 @@ mod tests {
         assert!(html.contains("market="));
         assert!(html.contains("cargo run --bin compare -- --baseline-dir"));
         assert!(html.contains("compare_demo/compare_report.html"));
+        assert!(html.contains("compare_demo"));
         assert!(html.contains("Metric Changes"));
         assert!(html.contains("Winner Summary"));
         assert!(html.contains("Candidate Wins"));
