@@ -10,7 +10,10 @@ use std::{
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 
-use crate::registry::{read_run_registry, top_registry_entries, RunRegistryEntry};
+use crate::{
+    paper_hints::{build_paper_hints, PaperHintsCompareInput, PaperHintsDaemonInput},
+    registry::{read_run_registry, top_registry_entries, RunRegistryEntry},
+};
 
 #[derive(Debug, Clone)]
 pub struct ControlCenterRequest {
@@ -580,6 +583,40 @@ fn render_snapshot(
                 }
             )?;
         }
+        let daemon_input = snapshot
+            .daemon
+            .as_ref()
+            .map(|daemon| PaperHintsDaemonInput {
+                last_cycle: daemon.last_cycle,
+                last_end_equity: daemon.last_end_equity,
+                max_drawdown_observed: daemon.max_drawdown_observed,
+                alerts: daemon.alerts,
+            });
+        let compare_input =
+            snapshot
+                .recent_compare
+                .as_ref()
+                .map(|compare| PaperHintsCompareInput {
+                    winner: compare.winner.clone(),
+                    research_changes: compare.research_changes,
+                    top_research_keys: compare.top_research_keys.clone(),
+                });
+        let hints = build_paper_hints(
+            &snapshot.research_report,
+            daemon_input.as_ref(),
+            compare_input.as_ref(),
+        );
+        writeln!(
+            out,
+            "Paper Hints | stance={} markets={} headline={}",
+            hints.stance,
+            if hints.watch_markets.is_empty() {
+                "-".to_string()
+            } else {
+                hints.watch_markets.join("|")
+            },
+            hints.headline
+        )?;
     }
 
     out.flush()?;

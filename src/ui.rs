@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     time::SystemTime,
@@ -8,6 +9,9 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::i18n::{dashboard_text, DashboardText, Language};
+use crate::paper_hints::{
+    build_paper_hints, render_paper_hints_summary, PaperHintsCompareInput, PaperHintsDaemonInput,
+};
 use crate::registry::{infer_registry_root, read_run_registry, RunRegistryEntry};
 
 #[derive(Debug, Serialize)]
@@ -270,6 +274,18 @@ struct RecentCompareUi {
     research_top_rows: Vec<CompareFieldCompat>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+struct DaemonStateCompat {
+    #[serde(default)]
+    last_cycle: usize,
+    #[serde(default)]
+    last_end_equity: f64,
+    #[serde(default)]
+    max_drawdown_observed: f64,
+    #[serde(default)]
+    alerts: usize,
+}
+
 #[derive(Debug, Serialize)]
 struct TradeRow {
     date: String,
@@ -334,6 +350,7 @@ struct DashboardI18nText {
     subtitle: String,
     generated_from: String,
     paper_ops_center: String,
+    paper_hints: String,
     overview: String,
     series: String,
     equity: String,
@@ -421,6 +438,8 @@ struct DashboardI18nText {
     healthy: String,
     watch: String,
     risk: String,
+    watch_markets_label: String,
+    headline_label: String,
     open_report_html: String,
     open_report_json: String,
     metric_changes_label: String,
@@ -496,6 +515,7 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         subtitle: t.subtitle.to_string(),
         generated_from: t.generated_from.to_string(),
         paper_ops_center: t.paper_ops_center.to_string(),
+        paper_hints: t.paper_hints.to_string(),
         overview: t.overview.to_string(),
         series: t.series.to_string(),
         equity: t.equity.to_string(),
@@ -583,6 +603,8 @@ fn i18n_text(t: DashboardText) -> DashboardI18nText {
         healthy: t.healthy.to_string(),
         watch: t.watch.to_string(),
         risk: t.risk.to_string(),
+        watch_markets_label: t.watch_markets_label.to_string(),
+        headline_label: t.headline_label.to_string(),
         open_report_html: t.open_report_html.to_string(),
         open_report_json: t.open_report_json.to_string(),
         metric_changes_label: t.metric_changes_label.to_string(),
@@ -736,6 +758,17 @@ pub fn build_dashboard_with_language(
         output_dir.join("data_quality_report.csv")
     };
     let audit_json_path = output_dir.join("audit_snapshot.json");
+    let daemon_state_path = if output_dir.join("paper_daemon_state.json").exists() {
+        output_dir.join("paper_daemon_state.json")
+    } else if output_dir
+        .join("daemon")
+        .join("paper_daemon_state.json")
+        .exists()
+    {
+        output_dir.join("daemon").join("paper_daemon_state.json")
+    } else {
+        output_dir.join("paper_daemon_state.json")
+    };
 
     let summary = fs::read_to_string(summary_path).unwrap_or_else(|_| "no summary".to_string());
     let summary_html = escape_html(&summary);
@@ -749,6 +782,7 @@ pub fn build_dashboard_with_language(
         fs::read_to_string(&research_summary_path).unwrap_or_else(|_| String::new());
     let research_summary_html = escape_html(&research_summary);
     let research_summary_kv = parse_kv_lines(&research_summary);
+    let research_summary_map = parse_kv_map_lines(&research_summary);
     let audit_summary =
         fs::read_to_string(&audit_summary_path).unwrap_or_else(|_| "no audit snapshot".to_string());
     let audit_html = escape_html(&audit_summary);
@@ -771,6 +805,33 @@ pub fn build_dashboard_with_language(
     let strategy_compare_rows = build_strategy_compare_rows(&registry_rows);
     let leaderboard_rows = read_leaderboard_rows(&leaderboard_path)?;
     let recent_compare = discover_recent_compare(output_dir);
+    let daemon_state = read_daemon_state(&daemon_state_path);
+    let daemon_input = daemon_state.as_ref().map(|state| PaperHintsDaemonInput {
+        last_cycle: state.last_cycle,
+        last_end_equity: state.last_end_equity,
+        max_drawdown_observed: state.max_drawdown_observed,
+        alerts: state.alerts,
+    });
+    let compare_input = recent_compare
+        .as_ref()
+        .map(|compare| PaperHintsCompareInput {
+            winner: compare.winner.clone(),
+            research_changes: compare.research_changes,
+            top_research_keys: compare
+                .research_top_rows
+                .iter()
+                .map(|row| row.key.clone())
+                .collect(),
+        });
+    let paper_hints = build_paper_hints(
+        &research_summary_map,
+        daemon_input.as_ref(),
+        compare_input.as_ref(),
+    );
+    fs::write(
+        output_dir.join("paper_hints_summary.txt"),
+        render_paper_hints_summary(&paper_hints),
+    )?;
 
     let trade_json = serde_json::to_string(&trade_rows)?;
     let rejection_json = serde_json::to_string(&rejection_rows)?;
@@ -793,6 +854,7 @@ pub fn build_dashboard_with_language(
     let audit_markets_json = serde_json::to_string(&audit_markets)?;
     let audit_config_sha_json = serde_json::to_string(&audit_config_sha)?;
     let recent_compare_json = serde_json::to_string(&recent_compare)?;
+    let paper_hints_json = serde_json::to_string(&paper_hints)?;
     let registry_refresh_path_json = serde_json::to_string(&registry_refresh_path)?;
     let leaderboard_refresh_path_json = serde_json::to_string(&leaderboard_refresh_path)?;
     let text = dashboard_text(language);
@@ -981,6 +1043,14 @@ th {{ color: var(--muted); font-weight: 600; }}
         <span class="chip" id="paper-ops-chip"></span>
       </div>
       <div class="ops-grid" id="paper-ops-grid"></div>
+    </section>
+
+    <section class="panel" data-delay="1" style="margin-bottom: 16px;">
+      <div class="toolbar">
+        <h3 id="paper-hints-title" style="margin:0;">{paper_hints}</h3>
+        <span class="chip" id="paper-hints-chip"></span>
+      </div>
+      <div id="paper-hints-card" class="regime-card"></div>
     </section>
 
     <div class="grid">
@@ -1597,6 +1667,7 @@ let dataQualityRows = {data_quality_json};
 let auditMarkets = {audit_markets_json};
 let auditConfigSha = {audit_config_sha_json};
 let recentCompare = {recent_compare_json};
+let paperHints = {paper_hints_json};
 const registryRefreshPath = {registry_refresh_path_json};
 const leaderboardRefreshPath = {leaderboard_refresh_path_json};
 const i18n = {i18n_json};
@@ -2544,6 +2615,28 @@ function healthBadgeClass(level) {{
   return 'risk';
 }}
 
+function renderPaperHints(text) {{
+  const chip = document.getElementById('paper-hints-chip');
+  const root = document.getElementById('paper-hints-card');
+  if (!chip || !root) return;
+  const stance = String((paperHints && paperHints.stance) || 'HEALTHY').toUpperCase();
+  chip.textContent = stance;
+  const chipClass = stance === 'RISK' ? 'bad' : (stance === 'WATCH' ? 'warn' : 'ok');
+  chip.className = `chip ${{chipClass}}`;
+  const markets = Array.isArray(paperHints && paperHints.watch_markets)
+    ? paperHints.watch_markets.filter(Boolean)
+    : [];
+  const bullets = Array.isArray(paperHints && paperHints.bullets)
+    ? paperHints.bullets.filter(Boolean)
+    : [];
+  root.innerHTML = `
+    <div class="regime-title">${{esc(text.headline_label)}}</div>
+    <div class="regime-main">${{esc((paperHints && paperHints.headline) || 'paper-only: waiting for research signals')}}</div>
+    <div class="regime-sub">${{esc(text.watch_markets_label)}}=${{esc(markets.length ? markets.join(' | ') : '-')}} | stance=${{esc(stance)}}</div>
+    <div class="summary" style="margin-top:10px;">${{esc(bullets.length ? bullets.join('\n') : 'paper-only: no actionable signals yet')}}</div>
+  `;
+}}
+
 function renderPaperOpsCenter(text) {{
   const root = document.getElementById('paper-ops-grid');
   const chip = document.getElementById('paper-ops-chip');
@@ -3451,6 +3544,7 @@ function applyLanguage(lang) {{
   document.getElementById('subtitle').textContent = text.subtitle;
   document.getElementById('generated-from').textContent = text.generated_from;
   document.getElementById('paper-ops-center').textContent = text.paper_ops_center;
+  document.getElementById('paper-hints-title').textContent = text.paper_hints;
   document.getElementById('overview').textContent = text.overview;
   document.getElementById('series-label').textContent = text.series;
   document.getElementById('equity-curve').textContent = text.equity_curve;
@@ -3632,6 +3726,7 @@ function applyLanguage(lang) {{
   document.getElementById('audit-th-holiday').textContent = text.holiday_file;
 
   setupFilters(text);
+  renderPaperHints(text);
   renderPaperOpsCenter(text);
   renderKpis(text);
   renderChart(text);
@@ -3937,6 +4032,7 @@ refreshFromFiles();
         subtitle = text.subtitle,
         generated_from = text.generated_from,
         paper_ops_center = text.paper_ops_center,
+        paper_hints = text.paper_hints,
         overview = text.overview,
         series = text.series,
         equity_curve = text.equity_curve,
@@ -4050,6 +4146,7 @@ refreshFromFiles();
         audit_markets_json = audit_markets_json,
         audit_config_sha_json = audit_config_sha_json,
         recent_compare_json = recent_compare_json,
+        paper_hints_json = paper_hints_json,
         registry_refresh_path_json = registry_refresh_path_json,
         leaderboard_refresh_path_json = leaderboard_refresh_path_json,
         i18n_json = i18n_json,
@@ -4864,6 +4961,19 @@ fn parse_kv_lines(text: &str) -> serde_json::Value {
     serde_json::Value::Object(map)
 }
 
+fn parse_kv_map_lines(text: &str) -> HashMap<String, String> {
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                return None;
+            }
+            let (key, value) = line.split_once('=')?;
+            Some((key.trim().to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
 fn read_data_quality_rows(path: &Path) -> Result<Vec<DataQualityRowUi>> {
     if !path.exists() {
         return Ok(Vec::new());
@@ -4978,6 +5088,11 @@ fn read_audit_snapshot(path: &Path) -> (String, Vec<AuditMarketUi>) {
     }
     out.sort_by(|a, b| a.market.cmp(&b.market));
     (snap.config_sha256, out)
+}
+
+fn read_daemon_state(path: &Path) -> Option<DaemonStateCompat> {
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
 }
 
 fn read_research_report(path: &Path) -> ResearchReportUiParts {
@@ -5213,6 +5328,16 @@ mod tests {
             "<html><body>compare html</body></html>",
         )
         .expect("write compare html");
+        fs::write(
+            output_dir.join("paper_daemon_state.json"),
+            r#"{
+  "last_cycle": 4,
+  "last_end_equity": 1012345.67,
+  "max_drawdown_observed": 0.034,
+  "alerts": 1
+}"#,
+        )
+        .expect("write daemon state");
 
         let path =
             build_dashboard_with_language(&output_dir, Language::En).expect("build dashboard");
@@ -5231,6 +5356,8 @@ mod tests {
         assert!(html.contains("Paper Ops Center"));
         assert!(html.contains("paper-ops-grid"));
         assert!(html.contains("paper-ops-chip"));
+        assert!(html.contains("Paper Hints"));
+        assert!(html.contains("paper-hints-card"));
         assert!(html.contains("Research"));
         assert!(html.contains("Walk-Forward Winner Board"));
         assert!(html.contains("Regime-Aware Leaderboard"));
@@ -5298,6 +5425,7 @@ mod tests {
         assert!(html.contains("regime_rotation_focus_market"));
         assert!(html.contains("aligned_regime_count"));
         assert!(html.contains("top_regime_transition_market"));
+        assert!(output_dir.join("paper_hints_summary.txt").exists());
         assert!(html.contains("latest_regime_transition_date"));
         assert!(html.contains("trend_down_high_vol"));
         assert!(html.contains("best_monotonic_factor"));

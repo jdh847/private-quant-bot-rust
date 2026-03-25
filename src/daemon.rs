@@ -9,6 +9,7 @@ use crate::{
     data::CsvDataPortal,
     engine::{summarize_result, QuantBotEngine},
     output::write_outputs,
+    paper_hints::{build_paper_hints, render_paper_hints_summary, PaperHintsDaemonInput},
 };
 
 #[derive(Debug, Clone)]
@@ -104,11 +105,51 @@ pub fn run_paper_daemon(
         state.last_cycle, state.alerts, state.last_end_equity, state.max_drawdown_observed
     );
     fs::write(out_dir.join("paper_daemon_summary.txt"), summary)?;
+    let research_summary = read_kv_file(&first_existing_path(&[
+        out_dir.join("research_report_summary.txt"),
+        out_dir
+            .join("research_report")
+            .join("research_report_summary.txt"),
+    ]))?;
+    let hints = build_paper_hints(
+        &research_summary,
+        Some(&PaperHintsDaemonInput {
+            last_cycle: state.last_cycle,
+            last_end_equity: state.last_end_equity,
+            max_drawdown_observed: state.max_drawdown_observed,
+            alerts: state.alerts,
+        }),
+        None,
+    );
+    fs::write(
+        out_dir.join("paper_hints_summary.txt"),
+        render_paper_hints_summary(&hints),
+    )?;
 
     Ok(PaperDaemonReport {
         cycles_run: state.last_cycle,
         alerts: state.alerts,
     })
+}
+
+fn first_existing_path(paths: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
+    paths.iter().find(|path| path.exists()).cloned()
+}
+
+fn read_kv_file(
+    path: &Option<std::path::PathBuf>,
+) -> Result<std::collections::HashMap<String, String>> {
+    let Some(path) = path else {
+        return Ok(std::collections::HashMap::new());
+    };
+    let text = fs::read_to_string(path)?;
+    Ok(text
+        .lines()
+        .filter_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            Some((key.trim().to_string(), value.trim().to_string()))
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -140,5 +181,6 @@ mod tests {
         )
         .expect("run daemon");
         assert_eq!(report.cycles_run, 1);
+        assert!(std::path::Path::new("outputs_rust/test_daemon/paper_hints_summary.txt").exists());
     }
 }

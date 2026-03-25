@@ -20,6 +20,7 @@ pub mod metrics;
 pub mod model;
 pub mod optimize;
 pub mod output;
+pub mod paper_hints;
 pub mod portfolio;
 pub mod registry;
 pub mod replay;
