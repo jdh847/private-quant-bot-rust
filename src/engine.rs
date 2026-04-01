@@ -59,12 +59,18 @@ impl QuantBotEngine<BrokerAdapter> {
             .iter()
             .map(|(name, market)| (name.clone(), market.execution_cost))
             .collect();
+        let market_fx_to_base = cfg
+            .markets
+            .iter()
+            .map(|(name, market)| (name.clone(), market.fx_to_base))
+            .collect();
         let broker = BrokerAdapter::Sim(
             PaperBroker::new(
                 cfg.start.starting_capital,
                 cfg.execution.commission_bps,
                 cfg.execution.slippage_bps,
             )
+            .with_market_fx_to_base(market_fx_to_base)
             .with_market_costs(
                 market_costs,
                 cfg.execution.sell_tax_bps,
@@ -116,7 +122,7 @@ impl<E: ExecutionAdapter> QuantBotEngine<E> {
                 }
 
                 let equity_now = self.broker.equity(&prices);
-                let market_budget = equity_now * market_cfg.allocation;
+                let market_budget = market_budget_local_ccy(equity_now, market_cfg);
                 let current_notionals = bars
                     .iter()
                     .map(|b| {
@@ -219,6 +225,11 @@ fn industry_lookup(cfg: &BotConfig) -> HashMap<(String, String), String> {
     out
 }
 
+fn market_budget_local_ccy(equity_base_ccy: f64, market_cfg: &crate::config::MarketConfig) -> f64 {
+    let budget_base = equity_base_ccy * market_cfg.allocation;
+    budget_base / market_cfg.fx_to_base.max(1e-12)
+}
+
 pub fn summarize_result(result: &RunResult) -> BacktestStats {
     if result.equity_curve.is_empty() {
         return BacktestStats::default();
@@ -290,7 +301,7 @@ impl From<crate::metrics::PerformanceMetrics> for BacktestStats {
 mod tests {
     use crate::{config::load_config, data::CsvDataPortal};
 
-    use super::QuantBotEngine;
+    use super::{market_budget_local_ccy, QuantBotEngine};
 
     #[test]
     fn run_produces_equity_and_trades() {
@@ -306,5 +317,17 @@ mod tests {
         let result = QuantBotEngine::from_config_force_sim(cfg, data).run();
         assert!(!result.equity_curve.is_empty());
         assert!(!result.trades.is_empty());
+    }
+
+    #[test]
+    fn foreign_market_budget_is_converted_to_local_currency() {
+        let cfg = load_config("config/bot.toml").expect("config should load");
+        let us_budget = market_budget_local_ccy(1_000_000.0, &cfg.markets["US"]);
+        let a_budget = market_budget_local_ccy(1_000_000.0, &cfg.markets["A"]);
+        let jp_budget = market_budget_local_ccy(1_000_000.0, &cfg.markets["JP"]);
+
+        assert!((us_budget - 500_000.0).abs() < 1e-6);
+        assert!(a_budget > 2_000_000.0);
+        assert!(jp_budget > 20_000_000.0);
     }
 }

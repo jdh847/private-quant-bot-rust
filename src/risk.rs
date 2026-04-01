@@ -189,7 +189,12 @@ impl UnifiedRiskManager {
                 -order.qty
             };
             let projected_qty = (current_qty + delta).max(0);
-            let projected_symbol_notional = (projected_qty as f64 * px).abs();
+            let fx = self
+                .market_fx_to_base
+                .get(&order.market)
+                .copied()
+                .unwrap_or(1.0);
+            let projected_symbol_notional = (projected_qty as f64 * px * fx).abs();
             if projected_symbol_notional > symbol_limit {
                 rejected.push(RiskRejection {
                     date: order.date,
@@ -220,11 +225,6 @@ impl UnifiedRiskManager {
                 .get(&order.market)
                 .cloned()
                 .unwrap_or_else(|| order.market.to_uppercase());
-            let fx = self
-                .market_fx_to_base
-                .get(&order.market)
-                .copied()
-                .unwrap_or(1.0);
             let delta_qty = if order.side == Side::Buy {
                 order.qty
             } else {
@@ -281,6 +281,8 @@ impl UnifiedRiskManager {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use chrono::NaiveDate;
 
     use crate::{
@@ -322,7 +324,8 @@ mod tests {
             UnifiedRiskManager::new(risk_cfg, &cfg.markets, &cfg.fx, &cfg.start.base_currency);
         rm.start_day(100_000.0);
 
-        let broker = PaperBroker::new(100_000.0, 0.0, 0.0);
+        let broker = PaperBroker::new(100_000.0, 0.0, 0.0)
+            .with_market_fx_to_base(HashMap::from([("A".to_string(), 0.14)]));
         let date = NaiveDate::from_ymd_opt(2025, 1, 10).expect("date");
         let order = Order {
             date,
@@ -338,5 +341,34 @@ mod tests {
         assert!(accepted.is_empty());
         assert_eq!(rejected.len(), 1);
         assert!(rejected[0].reason.contains("currency exposure breach"));
+    }
+
+    #[test]
+    fn foreign_symbol_weight_uses_base_currency_not_local_price() {
+        let cfg = load_config("config/bot.toml").expect("load cfg");
+        let mut rm = UnifiedRiskManager::new(
+            cfg.risk.clone(),
+            &cfg.markets,
+            &cfg.fx,
+            &cfg.start.base_currency,
+        );
+        rm.start_day(100_000.0);
+
+        let broker = PaperBroker::new(100_000.0, 0.0, 0.0)
+            .with_market_fx_to_base(HashMap::from([("A".to_string(), 0.14)]));
+        let date = NaiveDate::from_ymd_opt(2025, 1, 10).expect("date");
+        let order = Order {
+            date,
+            market: "A".to_string(),
+            symbol: "600519".to_string(),
+            side: Side::Buy,
+            qty: 100,
+        };
+        let mut prices = PriceMap::new();
+        prices.insert(("A".to_string(), "600519".to_string()), 1_000.0);
+
+        let (accepted, rejected) = rm.filter_orders(&[order], &broker, &prices, 100_000.0);
+        assert_eq!(accepted.len(), 1, "rejected={rejected:?}");
+        assert!(rejected.is_empty());
     }
 }

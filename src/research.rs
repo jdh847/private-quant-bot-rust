@@ -155,16 +155,24 @@ pub fn run_cross_market_research(
 fn apply_single_market_allocation(cfg: &mut BotConfig, target_market: &str) {
     let key = target_market.to_uppercase();
 
-    if !cfg.markets.contains_key(&key) {
+    let Some(allocation_cap) = cfg.markets.get(&key).map(|market| {
+        let currency = market.currency.to_uppercase();
+        cfg.risk
+            .currency_max_net_exposure_ratio
+            .get(&currency)
+            .copied()
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0)
+    }) else {
         return;
-    }
+    };
 
     for market in cfg.markets.values_mut() {
         market.allocation = 0.0;
     }
 
     if let Some(market) = cfg.markets.get_mut(&key) {
-        market.allocation = 1.0;
+        market.allocation = allocation_cap;
     }
 }
 
@@ -286,7 +294,7 @@ fn write_research_report(output_dir: impl AsRef<Path>, report: &ResearchReport) 
 mod tests {
     use crate::{config::load_config, data::CsvDataPortal};
 
-    use super::{run_cross_market_research, ResearchRequest};
+    use super::{apply_single_market_allocation, run_cross_market_research, ResearchRequest};
 
     #[test]
     fn research_generates_rows() {
@@ -313,5 +321,15 @@ mod tests {
         let report = run_cross_market_research(&cfg, &data, &req, "outputs_rust/test_research")
             .expect("research run");
         assert!(!report.rows.is_empty());
+    }
+
+    #[test]
+    fn single_market_research_respects_currency_cap() {
+        let mut cfg = load_config("config/bot.toml").expect("load config");
+        apply_single_market_allocation(&mut cfg, "A");
+
+        assert_eq!(cfg.markets["US"].allocation, 0.0);
+        assert_eq!(cfg.markets["JP"].allocation, 0.0);
+        assert!((cfg.markets["A"].allocation - 0.45).abs() < 1e-9);
     }
 }

@@ -108,12 +108,18 @@ pub fn build_broker(cfg: &BotConfig) -> Result<BrokerAdapter> {
         .iter()
         .map(|(name, market)| (name.clone(), market.execution_cost))
         .collect();
+    let market_fx_to_base: HashMap<String, f64> = cfg
+        .markets
+        .iter()
+        .map(|(name, market)| (name.clone(), market.fx_to_base))
+        .collect();
 
     let sim = PaperBroker::new(
         cfg.start.starting_capital,
         cfg.execution.commission_bps,
         cfg.execution.slippage_bps,
     )
+    .with_market_fx_to_base(market_fx_to_base)
     .with_market_costs(
         market_costs,
         cfg.execution.sell_tax_bps,
@@ -135,6 +141,7 @@ pub struct PaperBroker {
     pub cash: f64,
     default_cost: MarketExecutionCost,
     market_costs: HashMap<String, MarketExecutionCost>,
+    market_fx_to_base: HashMap<String, f64>,
     positions: HashMap<PriceKey, Position>,
     buys_today: HashMap<PriceKey, (NaiveDate, i64)>,
     current_day: Option<NaiveDate>,
@@ -151,10 +158,16 @@ impl PaperBroker {
                 min_fee: 0.0,
             },
             market_costs: HashMap::new(),
+            market_fx_to_base: HashMap::new(),
             positions: HashMap::new(),
             buys_today: HashMap::new(),
             current_day: None,
         }
+    }
+
+    pub fn with_market_fx_to_base(mut self, market_fx_to_base: HashMap<String, f64>) -> Self {
+        self.market_fx_to_base = market_fx_to_base;
+        self
     }
 
     pub fn with_market_costs(
@@ -181,6 +194,10 @@ impl PaperBroker {
             .get(market)
             .copied()
             .unwrap_or(self.default_cost)
+    }
+
+    fn market_fx_to_base(&self, market: &str) -> f64 {
+        self.market_fx_to_base.get(market).copied().unwrap_or(1.0)
     }
 
     fn fill_price(&self, close: f64, side: Side, cost: MarketExecutionCost) -> f64 {
@@ -239,9 +256,10 @@ impl PaperBroker {
         let Some(price) = prices.get(&key).copied() else {
             return current;
         };
+        let fx = self.market_fx_to_base(&order.market);
 
         let current_qty = self.positions.get(&key).map(|p| p.qty).unwrap_or(0);
-        let current_symbol = (current_qty as f64 * price).abs();
+        let current_symbol = (current_qty as f64 * price * fx).abs();
 
         let delta = if order.side == Side::Buy {
             order.qty
@@ -249,7 +267,7 @@ impl PaperBroker {
             -order.qty
         };
         let projected_qty = (current_qty + delta).max(0);
-        let projected_symbol = (projected_qty as f64 * price).abs();
+        let projected_symbol = (projected_qty as f64 * price * fx).abs();
 
         current - current_symbol + projected_symbol
     }
@@ -264,11 +282,14 @@ impl PaperBroker {
                 continue;
             };
             let cost = self.market_cost(&order.market);
+            let fx = self.market_fx_to_base(&order.market);
             let fill = self.fill_price(close, order.side, cost);
 
             if order.side == Side::Buy {
-                let notional = fill * order.qty as f64;
-                let fees = self.fees(notional, order.side, cost);
+                let notional_local = fill * order.qty as f64;
+                let fees_local = self.fees(notional_local, order.side, cost);
+                let notional = notional_local * fx;
+                let fees = fees_local * fx;
                 let total = notional + fees;
                 if total > self.cash {
                     continue;
@@ -277,8 +298,9 @@ impl PaperBroker {
                 let position = self.positions.entry(key.clone()).or_default();
                 let new_qty = position.qty + order.qty;
                 if new_qty > 0 {
-                    position.avg_price =
-                        (position.avg_price * position.qty as f64 + notional) / new_qty as f64;
+                    position.avg_price = (position.avg_price * position.qty as f64
+                        + notional_local)
+                        / new_qty as f64;
                 }
                 position.qty = new_qty;
 
@@ -308,8 +330,10 @@ impl PaperBroker {
                     continue;
                 }
 
-                let notional = fill * sell_qty as f64;
-                let fees = self.fees(notional, order.side, cost);
+                let notional_local = fill * sell_qty as f64;
+                let fees_local = self.fees(notional_local, order.side, cost);
+                let notional = notional_local * fx;
+                let fees = fees_local * fx;
                 if let Some(position) = self.positions.get_mut(&key) {
                     position.qty -= sell_qty;
                     if position.qty == 0 {
@@ -340,7 +364,14 @@ impl PaperBroker {
     pub fn gross_exposure(&self, prices: &PriceMap) -> f64 {
         self.positions
             .iter()
-            .map(|(key, pos)| prices.get(key).copied().unwrap_or(0.0) * pos.qty as f64)
+            .map(|((market, symbol), pos)| {
+                prices
+                    .get(&(market.clone(), symbol.clone()))
+                    .copied()
+                    .unwrap_or(0.0)
+                    * pos.qty as f64
+                    * self.market_fx_to_base(market)
+            })
             .map(f64::abs)
             .sum()
     }
@@ -348,7 +379,14 @@ impl PaperBroker {
     pub fn net_exposure(&self, prices: &PriceMap) -> f64 {
         self.positions
             .iter()
-            .map(|(key, pos)| prices.get(key).copied().unwrap_or(0.0) * pos.qty as f64)
+            .map(|((market, symbol), pos)| {
+                prices
+                    .get(&(market.clone(), symbol.clone()))
+                    .copied()
+                    .unwrap_or(0.0)
+                    * pos.qty as f64
+                    * self.market_fx_to_base(market)
+            })
             .sum()
     }
 
@@ -933,6 +971,7 @@ fn value_to_string_id(v: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::HashMap,
         fs,
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
@@ -943,6 +982,30 @@ mod tests {
     use crate::{config::IbkrConfig, model::PriceMap};
 
     use super::{IbkrPaperAdapter, Order, PaperBroker, Side};
+
+    #[test]
+    fn foreign_market_positions_are_marked_in_base_currency() {
+        let mut broker = PaperBroker::new(100_000.0, 0.0, 0.0)
+            .with_market_fx_to_base(HashMap::from([("JP".to_string(), 0.01)]));
+
+        let date = NaiveDate::from_ymd_opt(2025, 1, 10).expect("valid");
+        let order = Order {
+            date,
+            market: "JP".to_string(),
+            symbol: "7203".to_string(),
+            side: Side::Buy,
+            qty: 100,
+        };
+        let mut prices = PriceMap::new();
+        prices.insert(("JP".to_string(), "7203".to_string()), 1_000.0);
+
+        let fills = broker.execute_orders(&[order], &prices);
+        assert_eq!(fills.len(), 1);
+        assert!((broker.cash - 99_000.0).abs() < 1e-9);
+        assert!((broker.net_exposure(&prices) - 1_000.0).abs() < 1e-9);
+        assert!((broker.gross_exposure(&prices) - 1_000.0).abs() < 1e-9);
+        assert!((broker.equity(&prices) - 100_000.0).abs() < 1e-9);
+    }
 
     #[test]
     fn ibkr_lifecycle_logs_are_written_in_dry_run() {

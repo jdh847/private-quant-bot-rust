@@ -3,12 +3,12 @@ starting_capital = 1000000
 base_currency = "USD"
 
 [strategy]
-# Inspired by Rust quant repos: momentum + trend filter + volatility-adjusted ranking
-strategy_plugin = "layered_multi_factor" # layered_multi_factor | momentum_guard
+# Default paper setup tuned on the bundled sample dataset after FX/base-currency fixes.
+strategy_plugin = "momentum_guard" # layered_multi_factor | momentum_guard
 short_window = 3
 long_window = 7
 vol_window = 5
-top_n = 2
+top_n = 1
 min_momentum = -0.01
 mean_reversion_window = 3
 volume_window = 5
@@ -18,7 +18,7 @@ factor_low_vol_weight = 0.25
 factor_volume_weight = 0.10
 risk_parity_blend = 0.60
 max_turnover_ratio = 0.35
-portfolio_method = "hrp" # risk_parity | hrp
+portfolio_method = "risk_parity" # risk_parity | hrp
 hrp_lookback = 20
 winsorize_pct = 0.05
 layer1_select_ratio = 0.60

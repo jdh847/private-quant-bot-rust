@@ -80,12 +80,7 @@ pub fn run_benchmark_suite(
                 };
 
                 if let Some(mkt) = *market {
-                    for item in cfg.markets.values_mut() {
-                        item.allocation = 0.0;
-                    }
-                    if let Some(target) = cfg.markets.get_mut(mkt) {
-                        target.allocation = 1.0;
-                    }
+                    apply_single_market_scenario(&mut cfg, mkt);
                 }
 
                 let result = QuantBotEngine::from_config_force_sim(cfg, full_data.clone()).run();
@@ -283,11 +278,37 @@ fn validate_strategy_plugin(plugin: &str) -> Result<()> {
     }
 }
 
+fn apply_single_market_scenario(cfg: &mut BotConfig, target_market: &str) {
+    let key = target_market.to_uppercase();
+
+    let Some(allocation_cap) = cfg.markets.get(&key).map(|market| {
+        let currency = market.currency.to_uppercase();
+        let allocation_cap = cfg
+            .risk
+            .currency_max_net_exposure_ratio
+            .get(&currency)
+            .copied()
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        allocation_cap
+    }) else {
+        return;
+    };
+
+    for market in cfg.markets.values_mut() {
+        market.allocation = 0.0;
+    }
+
+    if let Some(target) = cfg.markets.get_mut(&key) {
+        target.allocation = allocation_cap;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{config::load_config, data::CsvDataPortal};
 
-    use super::{run_benchmark_suite, BenchmarkRequest};
+    use super::{apply_single_market_scenario, run_benchmark_suite, BenchmarkRequest};
 
     #[test]
     fn benchmark_produces_rows() {
@@ -310,5 +331,15 @@ mod tests {
         let report = run_benchmark_suite(&cfg, &data, "outputs_rust/test_benchmark", &req)
             .expect("run benchmark");
         assert!(!report.rows.is_empty());
+    }
+
+    #[test]
+    fn single_market_benchmark_respects_currency_cap() {
+        let mut cfg = load_config("config/bot.toml").expect("load config");
+        apply_single_market_scenario(&mut cfg, "JP");
+
+        assert_eq!(cfg.markets["US"].allocation, 0.0);
+        assert_eq!(cfg.markets["A"].allocation, 0.0);
+        assert!((cfg.markets["JP"].allocation - 0.35).abs() < 1e-9);
     }
 }
