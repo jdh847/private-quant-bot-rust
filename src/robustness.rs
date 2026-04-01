@@ -1,4 +1,8 @@
-use std::{collections::HashSet, fs, path::Path};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fs,
+    path::Path,
+};
 
 use anyhow::{anyhow, Result};
 use chrono::NaiveDate;
@@ -84,6 +88,7 @@ pub fn run_robustness_assessment(
                                     let mut cfg = base_cfg.clone();
                                     cfg.strategy = StrategyConfig {
                                         strategy_plugin: strategy_plugin.clone(),
+                                        market_routing: BTreeMap::new(),
                                         short_window: *short_window,
                                         long_window: *long_window,
                                         vol_window: *vol_window,

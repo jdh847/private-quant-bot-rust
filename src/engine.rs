@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 
 use crate::{
     calendar::ExchangeCalendar,
-    config::BotConfig,
+    config::{BotConfig, StrategyConfig},
     data::CsvDataPortal,
     execution::{build_broker, BrokerAdapter, ExecutionAdapter, PaperBroker},
     market::MarketRuleEngine,
@@ -25,7 +25,7 @@ pub struct RunResult {
 pub struct QuantBotEngine<E: ExecutionAdapter> {
     cfg: BotConfig,
     data: CsvDataPortal,
-    strategy: Box<dyn StrategyPlugin>,
+    market_strategies: HashMap<String, Box<dyn StrategyPlugin>>,
     risk: UnifiedRiskManager,
     market_rules: MarketRuleEngine,
     broker: E,
@@ -33,7 +33,7 @@ pub struct QuantBotEngine<E: ExecutionAdapter> {
 
 impl QuantBotEngine<BrokerAdapter> {
     pub fn from_config(cfg: BotConfig, data: CsvDataPortal) -> Result<Self> {
-        let strategy = build_strategy(cfg.strategy.clone(), industry_lookup(&cfg));
+        let market_strategies = market_strategies_from_config(&cfg);
         let risk = UnifiedRiskManager::new(
             cfg.risk.clone(),
             &cfg.markets,
@@ -43,11 +43,11 @@ impl QuantBotEngine<BrokerAdapter> {
         let broker = build_broker(&cfg)?;
         let rules = market_rules_from_config(&cfg);
 
-        Ok(Self::new(cfg, data, strategy, risk, rules, broker))
+        Ok(Self::new(cfg, data, market_strategies, risk, rules, broker))
     }
 
     pub fn from_config_force_sim(cfg: BotConfig, data: CsvDataPortal) -> Self {
-        let strategy = build_strategy(cfg.strategy.clone(), industry_lookup(&cfg));
+        let market_strategies = market_strategies_from_config(&cfg);
         let risk = UnifiedRiskManager::new(
             cfg.risk.clone(),
             &cfg.markets,
@@ -79,7 +79,7 @@ impl QuantBotEngine<BrokerAdapter> {
         );
         let rules = market_rules_from_config(&cfg);
 
-        Self::new(cfg, data, strategy, risk, rules, broker)
+        Self::new(cfg, data, market_strategies, risk, rules, broker)
     }
 }
 
@@ -87,7 +87,7 @@ impl<E: ExecutionAdapter> QuantBotEngine<E> {
     pub fn new(
         cfg: BotConfig,
         data: CsvDataPortal,
-        strategy: Box<dyn StrategyPlugin>,
+        market_strategies: HashMap<String, Box<dyn StrategyPlugin>>,
         risk: UnifiedRiskManager,
         market_rules: MarketRuleEngine,
         broker: E,
@@ -95,7 +95,7 @@ impl<E: ExecutionAdapter> QuantBotEngine<E> {
         Self {
             cfg,
             data,
-            strategy,
+            market_strategies,
             risk,
             market_rules,
             broker,
@@ -130,9 +130,11 @@ impl<E: ExecutionAdapter> QuantBotEngine<E> {
                         (b.symbol.clone(), (qty as f64 * b.close).max(0.0))
                     })
                     .collect::<HashMap<_, _>>();
+                let Some(strategy) = self.market_strategies.get_mut(market_name) else {
+                    continue;
+                };
                 let target_notionals =
-                    self.strategy
-                        .target_notionals(&bars, market_budget, &current_notionals);
+                    strategy.target_notionals(&bars, market_budget, &current_notionals);
                 let proposed = self.orders_from_targets(
                     bar_date,
                     &bars,
@@ -225,6 +227,33 @@ fn industry_lookup(cfg: &BotConfig) -> HashMap<(String, String), String> {
     out
 }
 
+fn market_strategy_config(cfg: &BotConfig, market_name: &str) -> StrategyConfig {
+    let mut strategy = cfg.strategy.clone();
+    if let Some(route) = cfg.strategy.market_routing.get(market_name) {
+        if let Some(plugin) = &route.strategy_plugin {
+            strategy.strategy_plugin = plugin.clone();
+        }
+        if let Some(method) = &route.portfolio_method {
+            strategy.portfolio_method = method.clone();
+        }
+    }
+    strategy
+}
+
+fn market_strategies_from_config(cfg: &BotConfig) -> HashMap<String, Box<dyn StrategyPlugin>> {
+    let industries = industry_lookup(cfg);
+    cfg.markets
+        .keys()
+        .map(|market_name| {
+            let strategy_cfg = market_strategy_config(cfg, market_name);
+            (
+                market_name.clone(),
+                build_strategy(strategy_cfg, industries.clone()),
+            )
+        })
+        .collect()
+}
+
 fn market_budget_local_ccy(equity_base_ccy: f64, market_cfg: &crate::config::MarketConfig) -> f64 {
     let budget_base = equity_base_ccy * market_cfg.allocation;
     budget_base / market_cfg.fx_to_base.max(1e-12)
@@ -301,7 +330,7 @@ impl From<crate::metrics::PerformanceMetrics> for BacktestStats {
 mod tests {
     use crate::{config::load_config, data::CsvDataPortal};
 
-    use super::{market_budget_local_ccy, QuantBotEngine};
+    use super::{market_budget_local_ccy, market_strategy_config, QuantBotEngine};
 
     #[test]
     fn run_produces_equity_and_trades() {
@@ -329,5 +358,21 @@ mod tests {
         assert!((us_budget - 500_000.0).abs() < 1e-6);
         assert!(a_budget > 2_000_000.0);
         assert!(jp_budget > 20_000_000.0);
+    }
+
+    #[test]
+    fn market_routing_overrides_plugin_and_method() {
+        let cfg = load_config("config/bot.toml").expect("config should load");
+
+        let us = market_strategy_config(&cfg, "US");
+        let a = market_strategy_config(&cfg, "A");
+        let jp = market_strategy_config(&cfg, "JP");
+
+        assert_eq!(us.strategy_plugin, "momentum_guard");
+        assert_eq!(us.portfolio_method, "risk_parity");
+        assert_eq!(a.strategy_plugin, "momentum_guard");
+        assert_eq!(a.portfolio_method, "risk_parity");
+        assert_eq!(jp.strategy_plugin, "momentum_guard");
+        assert_eq!(jp.portfolio_method, "risk_parity");
     }
 }

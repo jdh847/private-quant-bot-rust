@@ -28,6 +28,18 @@ regime_target_vol = 0.02
 regime_floor_scale = 0.35
 regime_ceiling_scale = 1.10
 
+[strategy.market_routing.US]
+strategy_plugin = "momentum_guard"
+portfolio_method = "risk_parity"
+
+[strategy.market_routing.A]
+strategy_plugin = "momentum_guard"
+portfolio_method = "risk_parity"
+
+[strategy.market_routing.JP]
+strategy_plugin = "momentum_guard"
+portfolio_method = "risk_parity"
+
 [risk]
 max_gross_exposure_ratio = 0.95
 max_symbol_weight = 0.30

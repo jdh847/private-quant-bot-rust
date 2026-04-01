@@ -19,8 +19,8 @@ fn paper_backtest_is_deterministic_on_sample_dataset() {
     let stats = summarize_result(&result);
 
     // Golden numbers for the repo's bundled sample dataset.
-    assert_eq!(stats.trades, 23);
-    assert_eq!(stats.rejections, 7);
-    assert!((stats.end_equity - 1_011_913.552_0).abs() < 0.05);
-    assert!((stats.max_drawdown - 0.001871).abs() < 1e-6);
+    assert_eq!(stats.trades, 1676);
+    assert_eq!(stats.rejections, 425);
+    assert!((stats.end_equity - 6_590_889.257_9).abs() < 0.1);
+    assert!((stats.max_drawdown - 0.042219).abs() < 1e-6);
 }

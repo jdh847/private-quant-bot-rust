@@ -793,7 +793,7 @@ fn stddev(values: &[f64]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     use chrono::NaiveDate;
 
@@ -806,6 +806,7 @@ mod tests {
         let mut strategy = MomentumTrendStrategy::new(
             StrategyConfig {
                 strategy_plugin: "layered_multi_factor".to_string(),
+                market_routing: BTreeMap::new(),
                 short_window: 2,
                 long_window: 4,
                 vol_window: 3,
@@ -891,6 +892,7 @@ mod tests {
         let strategy = MomentumTrendStrategy::new(
             StrategyConfig {
                 strategy_plugin: "layered_multi_factor".to_string(),
+                market_routing: BTreeMap::new(),
                 short_window: 2,
                 long_window: 4,
                 vol_window: 3,
@@ -945,6 +947,7 @@ mod tests {
         let strategy = build_strategy(
             StrategyConfig {
                 strategy_plugin: "momentum_guard".to_string(),
+                market_routing: BTreeMap::new(),
                 short_window: 2,
                 long_window: 4,
                 vol_window: 3,

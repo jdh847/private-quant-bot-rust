@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{collections::BTreeMap, fs, path::Path};
 
 use anyhow::Result;
 use sha2::{Digest, Sha256};
@@ -116,6 +116,7 @@ fn scenario_strategy(
 ) -> StrategyConfig {
     StrategyConfig {
         strategy_plugin: base.strategy_plugin.clone(),
+        market_routing: BTreeMap::new(),
         short_window,
         long_window,
         vol_window,

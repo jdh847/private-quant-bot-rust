@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 use anyhow::{anyhow, Result};
 
@@ -76,6 +80,7 @@ pub fn run_cross_market_research(
                                     let mut cfg = base_cfg.clone();
                                     cfg.strategy = StrategyConfig {
                                         strategy_plugin: strategy_plugin.clone(),
+                                        market_routing: BTreeMap::new(),
                                         short_window: *short_window,
                                         long_window: *long_window,
                                         vol_window: *vol_window,

@@ -21,6 +21,8 @@ pub struct StartConfig {
 pub struct StrategyConfig {
     #[serde(default = "default_strategy_plugin")]
     pub strategy_plugin: String,
+    #[serde(default)]
+    pub market_routing: BTreeMap<String, MarketStrategyRoute>,
     pub short_window: usize,
     pub long_window: usize,
     pub vol_window: usize,
@@ -60,6 +62,14 @@ pub struct StrategyConfig {
     pub regime_floor_scale: f64,
     #[serde(default = "default_regime_ceiling_scale")]
     pub regime_ceiling_scale: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MarketStrategyRoute {
+    #[serde(default)]
+    pub strategy_plugin: Option<String>,
+    #[serde(default)]
+    pub portfolio_method: Option<String>,
 }
 
 fn default_strategy_plugin() -> String {
@@ -309,7 +319,8 @@ pub fn load_config(path: impl AsRef<Path>) -> Result<BotConfig> {
     let config_path = path.as_ref();
     let content = fs::read_to_string(config_path)
         .with_context(|| format!("read config failed: {}", config_path.display()))?;
-    let raw: RawBotConfig = toml::from_str(&content).context("parse config TOML failed")?;
+    let mut raw: RawBotConfig = toml::from_str(&content).context("parse config TOML failed")?;
+    normalize_strategy_config(&mut raw.strategy);
 
     validate_strategy(&raw.strategy)?;
     validate_execution(&raw.execution)?;
@@ -565,6 +576,25 @@ fn validate_strategy(strategy: &StrategyConfig) -> Result<()> {
             "strategy regime_ceiling_scale must be >= regime_floor_scale"
         ));
     }
+    for (market, route) in &strategy.market_routing {
+        if let Some(plugin) = &route.strategy_plugin {
+            let plugin = plugin.trim();
+            let built_in = plugin == "layered_multi_factor" || plugin == "momentum_guard";
+            if !built_in && !is_registered_sdk_plugin(plugin) {
+                return Err(anyhow!(
+                    "strategy.market_routing.{market}.strategy_plugin '{}' is not registered",
+                    plugin
+                ));
+            }
+        }
+        if let Some(method) = &route.portfolio_method {
+            if method != "risk_parity" && method != "hrp" {
+                return Err(anyhow!(
+                    "strategy.market_routing.{market}.portfolio_method must be risk_parity or hrp"
+                ));
+            }
+        }
+    }
     let weight_sum = strategy.factor_momentum_weight
         + strategy.factor_mean_reversion_weight
         + strategy.factor_low_vol_weight
@@ -573,6 +603,32 @@ fn validate_strategy(strategy: &StrategyConfig) -> Result<()> {
         return Err(anyhow!("strategy factor weights sum must be > 0"));
     }
     Ok(())
+}
+
+fn normalize_strategy_config(strategy: &mut StrategyConfig) {
+    strategy.strategy_plugin = strategy.strategy_plugin.trim().to_lowercase();
+    strategy.portfolio_method = strategy.portfolio_method.trim().to_lowercase();
+    strategy.market_routing = strategy
+        .market_routing
+        .iter()
+        .map(|(market, route)| {
+            (
+                market.trim().to_uppercase(),
+                MarketStrategyRoute {
+                    strategy_plugin: route
+                        .strategy_plugin
+                        .as_ref()
+                        .map(|v| v.trim().to_lowercase())
+                        .filter(|v| !v.is_empty()),
+                    portfolio_method: route
+                        .portfolio_method
+                        .as_ref()
+                        .map(|v| v.trim().to_lowercase())
+                        .filter(|v| !v.is_empty()),
+                },
+            )
+        })
+        .collect();
 }
 
 fn validate_risk(risk: &RiskConfig) -> Result<()> {

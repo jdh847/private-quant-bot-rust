@@ -21,6 +21,7 @@ pub struct AuditSnapshot {
     pub base_currency: String,
     pub strategy_plugin: String,
     pub portfolio_method: String,
+    pub market_routing: Vec<AuditMarketRouting>,
     pub markets: Vec<AuditMarketFile>,
     pub stats: AuditStats,
 }
@@ -33,6 +34,13 @@ pub struct AuditMarketFile {
     pub data_file: AuditFileHash,
     pub industry_file: Option<AuditFileHash>,
     pub holiday_file: Option<AuditFileHash>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditMarketRouting {
+    pub market: String,
+    pub strategy_plugin: String,
+    pub portfolio_method: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -96,6 +104,23 @@ pub fn write_audit_snapshot(
         });
     }
     markets.sort_by(|a, b| a.market.cmp(&b.market));
+    let mut market_routing = cfg
+        .markets
+        .keys()
+        .map(|market_name| {
+            let route = cfg.strategy.market_routing.get(market_name);
+            AuditMarketRouting {
+                market: market_name.clone(),
+                strategy_plugin: route
+                    .and_then(|r| r.strategy_plugin.clone())
+                    .unwrap_or_else(|| cfg.strategy.strategy_plugin.clone()),
+                portfolio_method: route
+                    .and_then(|r| r.portfolio_method.clone())
+                    .unwrap_or_else(|| cfg.strategy.portfolio_method.clone()),
+            }
+        })
+        .collect::<Vec<_>>();
+    market_routing.sort_by(|a, b| a.market.cmp(&b.market));
 
     let snapshot = AuditSnapshot {
         generated_at_utc: chrono::Utc::now().to_rfc3339(),
@@ -108,6 +133,7 @@ pub fn write_audit_snapshot(
         base_currency: cfg.start.base_currency.clone(),
         strategy_plugin: cfg.strategy.strategy_plugin.clone(),
         portfolio_method: cfg.strategy.portfolio_method.clone(),
+        market_routing,
         markets,
         stats: AuditStats {
             start_equity: stats.start_equity,
