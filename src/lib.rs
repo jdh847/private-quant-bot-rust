@@ -12,6 +12,7 @@ pub mod dataset_manifest;
 pub mod doctor;
 pub mod engine;
 pub mod execution;
+pub mod factor_ic;
 pub mod fx;
 pub mod i18n;
 pub mod leaderboard;
